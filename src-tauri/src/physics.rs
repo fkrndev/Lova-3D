@@ -64,8 +64,13 @@ struct PhysicsWorld {
     impulse_joints: ImpulseJointSet,
     multibody_joints: MultibodyJointSet,
     ccd: CCDSolver,
-    /// Our object id → rigid-body handle (dynamic bodies only are reported).
+    query_pipeline: QueryPipeline,
+    /// Dynamic id → rigid-body handle (used for per-step state output).
     handles: HashMap<String, RigidBodyHandle>,
+    /// Every body id (dynamic + fixed) → handle (joints, raycasts).
+    ids: HashMap<String, RigidBodyHandle>,
+    /// Collider handle → owning body id (raycast hit resolution).
+    ids_by_collider: HashMap<ColliderHandle, String>,
     /// States returned by the most recent step (for determinism tests).
     last_states: Vec<BodyState>,
 }
@@ -84,7 +89,10 @@ impl PhysicsWorld {
             impulse_joints: ImpulseJointSet::new(),
             multibody_joints: MultibodyJointSet::new(),
             ccd: CCDSolver::new(),
+            query_pipeline: QueryPipeline::new(),
             handles: HashMap::new(),
+            ids: HashMap::new(),
+            ids_by_collider: HashMap::new(),
             last_states: Vec::new(),
         };
         for desc in bodies_in {
@@ -123,7 +131,9 @@ impl PhysicsWorld {
                 .translation(vector![desc.translation[0], desc.translation[1], desc.translation[2]])
         };
         let handle = self.bodies.insert(builder);
-        self.colliders.insert_with_parent(shape, handle, &mut self.bodies);
+        let collider = self.colliders.insert_with_parent(shape, handle, &mut self.bodies);
+        self.ids.insert(desc.id.clone(), handle);
+        self.ids_by_collider.insert(collider, desc.id.clone());
         if desc.dynamic {
             self.handles.insert(desc.id, handle);
         }
@@ -152,7 +162,7 @@ impl PhysicsWorld {
             &mut self.impulse_joints,
             &mut self.multibody_joints,
             &mut self.ccd,
-            None,
+            Some(&mut self.query_pipeline),
             &(),
             &(),
         );
@@ -340,6 +350,89 @@ pub fn physics_set_running(state: State<'_, SharedPhysics>, world: u64, running:
     }
 }
 
+/// Attach a joint between two bodies (fixed/spherical/rope/spring).
+#[derive(Deserialize, Debug, Clone)]
+pub struct JointDesc {
+    pub a: String,
+    pub b: String,
+    /// "fixed" | "spherical" | "rope" | "spring"
+    pub kind: String,
+    #[serde(default)]
+    pub anchor_a: [f32; 3],
+    #[serde(default)]
+    pub anchor_b: [f32; 3],
+    pub rope_max: Option<f32>,
+    pub spring_rest: Option<f32>,
+    pub spring_stiffness: Option<f32>,
+    pub spring_damping: Option<f32>,
+}
+
+#[tauri::command]
+pub fn physics_joint_add(state: State<'_, SharedPhysics>, world: u64, joint: JointDesc) -> Result<(), LovaError> {
+    with_world(&state, world, |w| -> Result<(), LovaError> {
+        let ha = *w.ids.get(&joint.a).ok_or_else(|| LovaError::io(format!("unknown body `{}`", joint.a)))?;
+        let hb = *w.ids.get(&joint.b).ok_or_else(|| LovaError::io(format!("unknown body `{}`", joint.b)))?;
+        let mut data: GenericJoint = match joint.kind.as_str() {
+            "fixed" => FixedJointBuilder::new().build().into(),
+            "spherical" => SphericalJointBuilder::new().build().into(),
+            "rope" => RopeJointBuilder::new(joint.rope_max.unwrap_or(5.0)).build().into(),
+            "spring" => SpringJointBuilder::new(
+                joint.spring_rest.unwrap_or(2.0),
+                joint.spring_stiffness.unwrap_or(50.0),
+                joint.spring_damping.unwrap_or(2.0),
+            )
+            .build()
+            .into(),
+            other => return Err(LovaError::io(format!("unknown joint kind `{other}`"))),
+        };
+        data.set_local_anchor1(point![joint.anchor_a[0], joint.anchor_a[1], joint.anchor_a[2]]);
+        data.set_local_anchor2(point![joint.anchor_b[0], joint.anchor_b[1], joint.anchor_b[2]]);
+        w.impulse_joints.insert(ha, hb, data, true);
+        Ok(())
+    }).and_then(|inner| inner)
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct RayHit {
+    pub id: String,
+    /// Distance along the (normalized) ray direction.
+    pub toi: f32,
+    pub point: [f32; 3],
+    pub normal: [f32; 3],
+}
+
+/// Cast a ray against every collider in the world (direction must be normalized).
+#[tauri::command]
+pub fn physics_raycast(
+    state: State<'_, SharedPhysics>,
+    world: u64,
+    origin: [f32; 3],
+    dir: [f32; 3],
+    max_toi: f32,
+) -> Result<Option<RayHit>, LovaError> {
+    with_world(&state, world, |w| {
+        let ray = Ray::new(
+            point![origin[0], origin[1], origin[2]],
+            vector![dir[0], dir[1], dir[2]],
+        );
+        match w
+            .query_pipeline
+            .cast_ray_and_get_normal(&w.bodies, &w.colliders, &ray, max_toi.max(0.0), true, QueryFilter::default())
+        {
+            Some((collider, hit)) => {
+                let id = w.ids_by_collider.get(&collider).cloned().unwrap_or_default();
+                Some(RayHit {
+                    id,
+                    toi: hit.time_of_impact,
+                    point: [origin[0] + dir[0] * hit.time_of_impact, origin[1] + dir[1] * hit.time_of_impact, origin[2] + dir[2] * hit.time_of_impact],
+                    normal: [hit.normal.x, hit.normal.y, hit.normal.z],
+                })
+            }
+            None => None,
+        }
+    })
+}
+
 #[tauri::command]
 pub fn physics_world_destroy(state: State<'_, SharedPhysics>, world: u64) -> bool {
     let mut guard = match state.lock() {
@@ -387,6 +480,40 @@ mod tests {
             last = world.step(1.0 / 60.0);
         }
         last
+    }
+
+    fn physics_joint_add_inner(w: &mut PhysicsWorld, joint: JointDesc) -> Result<(), LovaError> {
+        let ha = *w.ids.get(&joint.a).ok_or_else(|| LovaError::io("unknown a"))?;
+        let hb = *w.ids.get(&joint.b).ok_or_else(|| LovaError::io("unknown b"))?;
+        let mut data: GenericJoint = match joint.kind.as_str() {
+            "fixed" => FixedJointBuilder::new().build().into(),
+            "spherical" => SphericalJointBuilder::new().build().into(),
+            "rope" => RopeJointBuilder::new(joint.rope_max.unwrap_or(5.0)).build().into(),
+            "spring" => SpringJointBuilder::new(
+                joint.spring_rest.unwrap_or(2.0),
+                joint.spring_stiffness.unwrap_or(50.0),
+                joint.spring_damping.unwrap_or(2.0),
+            )
+            .build()
+            .into(),
+            other => return Err(LovaError::io(format!("unknown joint kind `{other}`"))),
+        };
+        data.set_local_anchor1(point![joint.anchor_a[0], joint.anchor_a[1], joint.anchor_a[2]]);
+        data.set_local_anchor2(point![joint.anchor_b[0], joint.anchor_b[1], joint.anchor_b[2]]);
+        w.impulse_joints.insert(ha, hb, data, true);
+        Ok(())
+    }
+
+    fn physics_raycast_inner(w: &mut PhysicsWorld, origin: [f32; 3], dir: [f32; 3], max_toi: f32) -> Result<Option<RayHit>, LovaError> {
+        let ray = Ray::new(point![origin[0], origin[1], origin[2]], vector![dir[0], dir[1], dir[2]]);
+        Ok(w.query_pipeline
+            .cast_ray_and_get_normal(&w.bodies, &w.colliders, &ray, max_toi, true, QueryFilter::default())
+            .map(|(collider, hit)| RayHit {
+                id: w.ids_by_collider.get(&collider).cloned().unwrap_or_default(),
+                toi: hit.time_of_impact,
+                point: [origin[0] + dir[0] * hit.time_of_impact, origin[1] + dir[1] * hit.time_of_impact, origin[2] + dir[2] * hit.time_of_impact],
+                normal: [hit.normal.x, hit.normal.y, hit.normal.z],
+            }))
     }
 
     fn state_of<'a>(states: &'a [BodyState], id: &str) -> &'a BodyState {
@@ -488,6 +615,99 @@ mod tests {
             assert_eq!(sa.translation, sb.translation, "trajectories diverged");
             assert_eq!(sa.linvel, sb.linvel);
         }
+    }
+
+    
+    #[test]
+    fn fixed_joint_keeps_two_bodies_at_a_fixed_distance() {
+        let mut a = ball_at(5.0, 0.0, "a");
+        let mut b = ball_at(7.0, 0.0, "b"); // 2 apart
+        let w = &mut PhysicsWorld::new(vec![ground(), a, b]);
+        physics_joint_add_inner(
+            w,
+            JointDesc {
+                a: "a".into(),
+                b: "b".into(),
+                kind: "fixed".into(),
+                anchor_a: [0.0, 0.0, 0.0],
+                anchor_b: [0.0, 0.0, 0.0],
+                rope_max: None,
+                spring_rest: None,
+                spring_stiffness: None,
+                spring_damping: None,
+            },
+        )
+        .unwrap();
+        let last = step_n(w, 120); // both fall while rigidly linked
+        let sa = state_of(&last, "a");
+        let sb = state_of(&last, "b");
+        let dist = ((sa.translation[0] - sb.translation[0]).powi(2)
+            + (sa.translation[1] - sb.translation[1]).powi(2)
+            + (sa.translation[2] - sb.translation[2]).powi(2))
+        .sqrt();
+        assert!(dist < 0.25, "bodies with identical anchors must stay coincident: {dist}");
+    }
+
+    #[test]
+    fn rope_joint_caps_the_distance() {
+        let mut a = ball_at(0.5, 0.0, "a");
+        a.linvel = [8.0, 0.0, 0.0]; // fly away
+        let b = ball_at(0.5, 0.0, "b");
+        let w = &mut PhysicsWorld::new(vec![ground(), a, b]);
+        physics_joint_add_inner(
+            w,
+            JointDesc {
+                a: "a".into(),
+                b: "b".into(),
+                kind: "rope".into(),
+                anchor_a: [0.0; 3],
+                anchor_b: [0.0; 3],
+                rope_max: Some(3.0),
+                spring_rest: None,
+                spring_stiffness: None,
+                spring_damping: None,
+            },
+        )
+        .unwrap();
+        let last = step_n(w, 90);
+        let sa = state_of(&last, "a");
+        let sb = state_of(&last, "b");
+        let dist = ((sa.translation[0] - sb.translation[0]).powi(2)
+            + (sa.translation[1] - sb.translation[1]).powi(2)
+            + (sa.translation[2] - sb.translation[2]).powi(2))
+        .sqrt();
+        assert!(dist < 3.6, "rope did not cap the distance: {dist}");
+    }
+
+    #[test]
+    fn raycast_hits_ground_with_normal_and_misses_upwards() {
+        let w = &mut PhysicsWorld::new(vec![ground(), ball_at(5.0, 0.0, "b")]);
+        step_n(w, 120); // ball rests at 0.5
+
+        // Down at x=0 hits the ball first (origin above it).
+        let hit = physics_raycast_inner(
+            w,
+            [0.0, 10.0, 0.0],
+            [0.0, -1.0, 0.0],
+            50.0,
+        )
+        .unwrap()
+        .expect("expected a hit");
+        assert_eq!(hit.id, "b");
+        assert!((hit.toi - 9.0).abs() < 0.1, "toi = {}", hit.toi); // ball rests at 0.5, radius 0.5 → top at 1.0
+        assert!(hit.normal[1] > 0.9);
+
+        // Down away from the ball hits the ground plane.
+        let ground_hit = physics_raycast_inner(w, [10.0, 10.0, 0.0], [0.0, -1.0, 0.0], 50.0)
+            .unwrap()
+            .expect("expected a ground hit");
+        assert_eq!(ground_hit.id, "ground");
+        assert!((ground_hit.toi - 10.0).abs() < 0.05);
+
+        // A short ray pointing into empty space misses everything.
+        // (A half-space is infinite — a ray cast from "below" it legitimately
+        // starts inside the shape, so the miss case uses an empty direction.)
+        assert!(physics_raycast_inner(w, [8.0, 5.0, 0.0], [0.0, 1.0, 0.0], 3.0).unwrap().is_none());
     }
 
     #[test]

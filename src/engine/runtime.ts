@@ -68,6 +68,14 @@ interface ScriptApi {
   key(code: string): boolean;
   log(...args: unknown[]): void;
   hud(text: string): void;
+  /** Attach a joint between this object and another ("fixed"|"spherical"|"rope"|"spring"). */
+  joint(other: ScriptApi, kind: "fixed" | "spherical" | "rope" | "spring", options?: { ropeMax?: number; springRest?: number; springStiffness?: number; springDamping?: number }): void;
+  /**
+   * Raycast into the physics scene. Sync in exported games; in the desktop
+   * editor preview it currently resolves asynchronously-unsupported and
+   * warns once (full support lands with the Rust script runtime).
+   */
+  raycast(origin: Vec3Like, dir: Vec3Like, maxDist: number): { id: string; distance: number; point: Vec3Like; normal: Vec3Like } | null;
   readonly camera: {
     follow(target: ScriptApi | null): void;
     lookAt(pos: Vec3Like): void;
@@ -102,6 +110,8 @@ export class Runtime {
   // ── native Rapier physics (desktop) ─────────────────────────────────
   private physWorld: number | null = null;
   private physChain: Promise<void> = Promise.resolve();
+  private jointWarned = false;
+  private raycastWarned = false;
   private lastRapierPos = new Map<string, Vec3>();
   /** True when world creation failed — fall back to the TS simulation. */
   private rapierGaveUp = false;
@@ -117,6 +127,53 @@ export class Runtime {
 
   get isActive(): boolean {
     return this.active;
+  }
+
+  /**
+   * Analytic raycast against the physics approximation (balls + ground
+   * half-spaces). Used by api.raycast where no native query pipeline is
+   * reachable from the UI thread (editor preview, TS fallback).
+   */
+  private tsRaycast(
+    store: SceneStore,
+    origin: Vec3Like,
+    dir: Vec3Like,
+    maxDist: number
+  ): { id: string; distance: number; point: Vec3Like; normal: Vec3Like } | null {
+    const len = Math.hypot(dir.x, dir.y, dir.z) || 1;
+    const d = { x: dir.x / len, y: dir.y / len, z: dir.z / len };
+    let best: { id: string; distance: number; point: Vec3Like; normal: Vec3Like } | null = null;
+
+    for (const obj of store.scene.objects) {
+      if (!obj.mesh || obj.physics?.type !== "static") continue;
+      const s = obj.transform.scale;
+      if (obj.mesh.kind === "plane") {
+        // Ground half-space at world Y: ray·plane when dy < 0.
+        const gy = store.worldPositionOf(obj).y;
+        if (d.y < -1e-6 && origin.y > gy) {
+          const t = (gy - origin.y) / d.y;
+          if (t >= 0 && t <= maxDist && (!best || t < best.distance)) {
+            best = { id: obj.id, distance: t, point: { x: origin.x + d.x * t, y: gy, z: origin.z + d.z * t }, normal: { x: 0, y: 1, z: 0 } };
+          }
+        }
+      } else if (obj.mesh.kind === "sphere" || obj.mesh.kind === "box") {
+        // Sphere approximation around the world center.
+        const c = store.worldPositionOf(obj);
+        const r = 0.5 * Math.max(s.x, s.y, s.z);
+        const ox = origin.x - c.x, oy = origin.y - c.y, oz = origin.z - c.z;
+        const b = ox * d.x + oy * d.y + oz * d.z;
+        const disc = b * b - (ox * ox + oy * oy + oz * oz - r * r);
+        if (disc >= 0) {
+          const t = -b - Math.sqrt(disc);
+          if (t >= 0 && t <= maxDist && (!best || t < best.distance)) {
+            const px = origin.x + d.x * t, py = origin.y + d.y * t, pz = origin.z + d.z * t;
+            const nl = Math.hypot(px - c.x, py - c.y, pz - c.z) || 1;
+            best = { id: obj.id, distance: t, point: { x: px, y: py, z: pz }, normal: { x: (px - c.x) / nl, y: (py - c.y) / nl, z: (pz - c.z) / nl } };
+          }
+        }
+      }
+    }
+    return best;
   }
 
   /** Editor pause → park the Rust loop (thread stays alive, no stepping). */
@@ -411,6 +468,8 @@ export class Runtime {
     }
     this.lastRapierPos.clear();
     this.rapierGaveUp = false;
+    this.jointWarned = false;
+    this.raycastWarned = false;
     this.nativeDecided = false;
     this.useNative = false;
     this.physChain = Promise.resolve();
@@ -824,6 +883,38 @@ export class Runtime {
         },
         hud(text: string): void {
           store.playHud = String(text ?? "");
+        },
+        joint(other: ScriptApi, kind: "fixed" | "spherical" | "rope" | "spring", options?: { ropeMax?: number; springRest?: number; springStiffness?: number; springDamping?: number }): void {
+          const world = self.physWorld;
+          if (world === null) {
+            if (!self.jointWarned) {
+              self.jointWarned = true;
+              store.log("warn", "api.joint requires the native physics backend (desktop build)");
+            }
+            return;
+          }
+          void loadIo().then((io) =>
+            io
+              .physicsJointAdd(world, {
+                a: targetId,
+                b: other.id,
+                kind,
+                anchorA: [0, 0, 0],
+                anchorB: [0, 0, 0],
+                ropeMax: options?.ropeMax,
+                springRest: options?.springRest,
+                springStiffness: options?.springStiffness,
+                springDamping: options?.springDamping,
+              })
+              .catch((e) => store.log("error", `api.joint: ${String(e)}`))
+          );
+        },
+        raycast(origin: Vec3Like, dir: Vec3Like, maxDist: number) {
+          if (!self.raycastWarned) {
+            self.raycastWarned = true;
+            store.log("warn", "api.raycast in the editor preview is approximate; exported games use real physics rays");
+          }
+          return self.tsRaycast(store, origin, dir, maxDist);
         },
         camera: {
           follow(target: ScriptApi | null): void {

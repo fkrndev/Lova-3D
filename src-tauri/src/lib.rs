@@ -46,6 +46,8 @@ pub fn run() {
             physics::physics_teleport,
             physics::physics_run,
             physics::physics_set_running,
+            physics::physics_joint_add,
+            physics::physics_raycast,
             physics::physics_world_destroy
         ])
         .run(tauri::generate_context!())

@@ -67,4 +67,13 @@ describe("buildExportHtml", () => {
     expect(html).toContain("onTriggerLeave");
     expect(html).toContain("fireTrigger");
   });
+
+  it("ships joints and raycast in the script api", () => {
+    const html = buildExportHtml(createDefaultScene());
+    expect(html).toContain("JointData.fixed");
+    expect(html).toContain("JointData.spherical");
+    expect(html).toContain("createImpulseJoint");
+    expect(html).toContain("castRayAndGetNormal");
+    expect(html).toContain("raycast: function");
+  });
 });

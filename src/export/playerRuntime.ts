@@ -469,6 +469,80 @@ export function buildExportHtml(scene: SceneData, assets: Record<string, string>
           }
         },
         get grounded() { return groundedMap[tid] === true; },
+        joint: function (other, kind, options) {
+          if (physMode !== "rapier" || !physBodies[tid] || !physBodies[other.id]) {
+            console.warn("api.joint requires the Rapier backend and two physics bodies");
+            return;
+          }
+          var kindMap = {
+            fixed: function () { return RAPIER.JointData.fixed({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0, w: 1 }, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0, w: 1 }); },
+            spherical: function () { return RAPIER.JointData.spherical({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }); },
+            rope: function () { return RAPIER.JointData.rope(options && options.ropeMax ? options.ropeMax : 5, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }); },
+            spring: function () {
+              return RAPIER.JointData.spring(
+                options && options.springRest ? options.springRest : 2,
+                options && options.springStiffness ? options.springStiffness : 50,
+                options && options.springDamping ? options.springDamping : 2,
+                { x: 0, y: 0, z: 0 },
+                { x: 0, y: 0, z: 0 }
+              );
+            },
+          };
+          try {
+            physWorld.createImpulseJoint(kindMap[kind](), physBodies[tid], physBodies[other.id], true);
+          } catch (e) {
+            console.warn("api.joint failed:", e);
+          }
+        },
+        raycast: function (origin, dir, maxDist) {
+          if (physMode === "rapier") {
+            var len = Math.hypot(dir.x, dir.y, dir.z) || 1;
+            var dx = dir.x / len, dy = dir.y / len, dz = dir.z / len;
+            var ray = new RAPIER.Ray(origin, { x: dx, y: dy, z: dz });
+            var hit = physWorld.castRayAndGetNormal(ray, maxDist, true);
+            if (hit) {
+              var col = hit.collider;
+              var bodyId = null;
+              for (var bid in physBodies) {
+                var count = physBodies[bid].numColliders();
+                for (var ci = 0; ci < count; ci++) if (physBodies[bid].collider(ci) === col) bodyId = bid;
+              }
+              if (!bodyId) return null;
+              var toi = hit.timeOfImpact;
+              var n = hit.normal || { x: 0, y: 1, z: 0 };
+              return { id: bodyId, distance: toi, point: { x: origin.x + dx * toi, y: origin.y + dy * toi, z: origin.z + dz * toi }, normal: { x: n.x, y: n.y, z: n.z } };
+            }
+            return null;
+          }
+          // TS approximation: ground planes + ball-shaped statics.
+          var len2 = Math.hypot(dir.x, dir.y, dir.z) || 1;
+          var d = { x: dir.x / len2, y: dir.y / len2, z: dir.z / len2 };
+          var best = null;
+          SCENE.objects.forEach(function (o) {
+            if (!o.mesh || !o.physics || o.physics.type !== "static") return;
+            var w = worldTransform(o);
+            if (o.mesh.kind === "plane" && d.y < -1e-6 && origin.y > w.position.y) {
+              var t = (w.position.y - origin.y) / d.y;
+              if (t >= 0 && t <= maxDist && (!best || t < best.distance)) {
+                best = { id: o.id, distance: t, point: { x: origin.x + d.x * t, y: w.position.y, z: origin.z + d.z * t }, normal: { x: 0, y: 1, z: 0 } };
+              }
+            } else {
+              var r = 0.5 * Math.max(w.scale.x, w.scale.y, w.scale.z);
+              var ox = origin.x - w.position.x, oy = origin.y - w.position.y, oz = origin.z - w.position.z;
+              var bb = ox * d.x + oy * d.y + oz * d.z;
+              var disc = bb * bb - (ox * ox + oy * oy + oz * oz - r * r);
+              if (disc >= 0) {
+                var tt = -bb - Math.sqrt(disc);
+                if (tt >= 0 && tt <= maxDist && (!best || tt < best.distance)) {
+                  var px = origin.x + d.x * tt, py = origin.y + d.y * tt, pz = origin.z + d.z * tt;
+                  var nl = Math.hypot(px - w.position.x, py - w.position.y, pz - w.position.z) || 1;
+                  best = { id: o.id, distance: tt, point: { x: px, y: py, z: pz }, normal: { x: (px - w.position.x) / nl, y: (py - w.position.y) / nl, z: (pz - w.position.z) / nl } };
+                }
+              }
+            }
+          });
+          return best;
+        },
         find: function (name) { for (var i = 0; i < SCENE.objects.length; i++) if (SCENE.objects[i].name === name) return handle(SCENE.objects[i].id); return null; },
         key: function (code) { return !!keys[code]; },
         log: function () { console.log.apply(console, arguments); },

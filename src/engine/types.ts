@@ -198,6 +198,27 @@ export interface PhysicsBodyState {
   grounded: boolean;
 }
 
+export type PhysicsJointKind = "fixed" | "spherical" | "rope" | "spring";
+
+export interface PhysicsJointDesc {
+  a: string;
+  b: string;
+  kind: PhysicsJointKind;
+  anchorA?: [number, number, number];
+  anchorB?: [number, number, number];
+  ropeMax?: number;
+  springRest?: number;
+  springStiffness?: number;
+  springDamping?: number;
+}
+
+export interface PhysicsRayHit {
+  id: string;
+  toi: number;
+  point: [number, number, number];
+  normal: [number, number, number];
+}
+
 export type LogKind = "info" | "warn" | "error" | "success";
 
 export interface LogEntry {

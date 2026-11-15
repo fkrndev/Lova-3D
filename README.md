@@ -27,6 +27,7 @@ come alive, then save the whole thing as a portable JSON file.
 - **Gizmos** — move / rotate / scale (W / E / R), one history entry per drag
 - **Hierarchy panel** — parent/child tree with drag-drop reparenting (world
   position preserved), expand/collapse, search, rename, visibility, delete
+- **Joints & raycast (v0.7)** — `api.joint(other, "fixed"|"spherical"|"rope"|"spring")` links two bodies (native desktop), and `api.raycast(origin, dir, maxDist)` returns the first hit `{ id, distance, point, normal }` — real Rapier queries in exported games, analytic approximation in the editor preview (full editor parity lands with the Rust script runtime)
 - **Physics (v0.6)** — the same engine everywhere: the desktop app simulates
   with **native Rapier (Rust)** driven by a **fixed-timestep simulation loop
   running on its own Rust thread** — states stream back to the editor over

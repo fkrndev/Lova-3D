@@ -35,6 +35,23 @@ export async function physicsWorldDestroy(world: number): Promise<void> {
   await invoke("physics_world_destroy", { world });
 }
 
+export async function physicsJointAdd(
+  world: number,
+  joint: import("./types").PhysicsJointDesc
+): Promise<void> {
+  await invoke("physics_joint_add", { world, joint });
+}
+
+/** Returns the first hit along the normalized ray, or null. */
+export async function physicsRaycast(
+  world: number,
+  origin: [number, number, number],
+  dir: [number, number, number],
+  maxToi: number
+): Promise<import("./types").PhysicsRayHit | null> {
+  return await invoke<import("./types").PhysicsRayHit | null>("physics_raycast", { world, origin, dir, maxToi });
+}
+
 /** Start the Rust-driven simulation loop (fixed timestep, event streaming). */
 export async function physicsRun(world: number, hz = 60): Promise<void> {
   await invoke("physics_run", { world, hz });
