@@ -12,6 +12,7 @@ import {
   createDefaultScene,
   createLightObject,
   createMeshObject,
+  createModelObject,
   uid,
 } from "./factories";
 import type {
@@ -27,6 +28,7 @@ import type {
   MeshDef,
   MeshKind,
   PlayState,
+  ProjectInfo,
   SceneData,
   Transform,
 } from "./types";
@@ -50,6 +52,8 @@ export class SceneStore {
   recovered = $state(false);
   /** HUD text set by game scripts during play. */
   playHud = $state("");
+  /** Open project (folder + SQLite index), or null for standalone scene files. */
+  project = $state<ProjectInfo | null>(null);
   currentPath = $state<string | null>(null);
   fps = $state(0);
 
@@ -245,6 +249,20 @@ export class SceneStore {
     this.commit();
     this.select(obj.id);
     this.log("info", t("log.addObj", { name: obj.name }));
+  }
+
+  /** Add an imported GLB/GLTF asset instance to the scene. */
+  addModel(modelPath: string): void {
+    if (this.playState !== "edit") return;
+    const obj = createModelObject(modelPath, this.scene.objects);
+    this.scene.objects.push(obj);
+    this.commit();
+    this.select(obj.id);
+    this.log("info", t("log.addObj", { name: obj.name }));
+  }
+
+  setProject(project: ProjectInfo | null): void {
+    this.project = project;
   }
 
   removeSelected(): void {
@@ -583,7 +601,8 @@ export class SceneStore {
     }, AUTOSAVE_DEBOUNCE_MS);
   }
 
-  private clearAutosave(): void {
+  /** Remove any pending autosave (called after an explicit save). */
+  clearAutosave(): void {
     if (this.autosaveTimer !== null) {
       clearTimeout(this.autosaveTimer);
       this.autosaveTimer = null;

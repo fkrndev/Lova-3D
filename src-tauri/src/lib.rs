@@ -1,3 +1,5 @@
+mod project;
+
 use std::fs;
 use std::path::Path;
 
@@ -19,7 +21,18 @@ fn load_scene(path: String) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![save_scene, load_scene])
+        .invoke_handler(tauri::generate_handler![
+            save_scene,
+            load_scene,
+            project::create_project,
+            project::open_project,
+            project::project_save_scene,
+            project::import_asset,
+            project::list_assets,
+            project::set_asset_thumb,
+            project::read_project_file_b64,
+            project::write_project_file_b64
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Lova 3D");
 }

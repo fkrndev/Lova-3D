@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import AssetBrowser from "./components/AssetBrowser.svelte";
   import ConsolePanel from "./components/ConsolePanel.svelte";
   import HierarchyPanel from "./components/HierarchyPanel.svelte";
   import InspectorPanel from "./components/InspectorPanel.svelte";
@@ -12,6 +13,7 @@
   import { t } from "./i18n/index.svelte";
 
   let viewportPanel: ViewportPanel;
+  let bottomTab = $state<"assets" | "console">("assets");
 
   onMount(() => {
     const onKeydown = (e: KeyboardEvent) => {
@@ -87,7 +89,24 @@
     <HierarchyPanel />
     <div class="center">
       <ViewportPanel bind:this={viewportPanel} />
-      <ConsolePanel />
+      <div class="bottom-dock">
+        <div class="dock-tabs">
+          <button class:docked-active={bottomTab === "assets"} onclick={() => (bottomTab = "assets")}>
+            {t("assets.title")}
+            {#if store.project}<span class="tab-count">{store.project.assets.length}</span>{/if}
+          </button>
+          <button class:docked-active={bottomTab === "console"} onclick={() => (bottomTab = "console")}>
+            {t("panel.console")}
+          </button>
+        </div>
+        <div class="dock-body">
+          {#if bottomTab === "assets"}
+            <AssetBrowser />
+          {:else}
+            <ConsolePanel />
+          {/if}
+        </div>
+      </div>
     </div>
     <InspectorPanel />
   </div>

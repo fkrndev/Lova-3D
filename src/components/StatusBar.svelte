@@ -28,6 +28,12 @@
   </div>
 
   <div class="flex min-w-0 items-center gap-2">
+    {#if store.project}
+      <span class="max-w-[220px] truncate font-semibold text-accent2" title={store.project.root}
+        >&#128193; {store.project.name}</span
+      >
+      <span class="text-faint">·</span>
+    {/if}
     {#if store.dirty}
       <span class="size-[7px] shrink-0 rounded-full bg-accent" title={t("status.unsaved")}></span>
       <span class="text-accent">{t("status.unsaved")}</span>

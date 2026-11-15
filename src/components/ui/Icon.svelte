@@ -29,6 +29,9 @@
     search: `<circle cx="7" cy="7" r="4"/><path d="M10 10l3.5 3.5"/>`,
     chevron: `<path d="M4 6l4 4 4-4"/>`,
     export: `<path d="M8 10.5V2.5M8 2.5 5 5.5M8 2.5l3 3"/><path d="M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2"/>`,
+    folderPlus: `<path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"/><path d="M8 7.5v4M6 9.5h4"/>`,
+    image: `<rect x="2.5" y="3.5" width="11" height="9" rx="1"/><circle cx="6" cy="6.8" r="1"/><path d="M2.5 11l3-2.5 2.5 2 2.5-2.5 3 3"/>`,
+    audio: `<path d="M3.5 6.5v3M6 4.5v7M8.5 5.5v5M11 6.5v3"/>`,
   };
 
   let { name, size = 15 }: { name: string; size?: number } = $props();

@@ -151,19 +151,26 @@ function onUpdate(dt, t) {
       {#if selected.mesh}
         <section class="isection">
           <h3>{t("inspector.mesh")}</h3>
-          <label class="row">
-            <span class="lbl">{t("inspector.kind")}</span>
-            <select
-              class="select"
-              value={selected.mesh.kind}
-              disabled={!editing}
-              onchange={(e) => store.patchMesh(selected.id, { kind: e.currentTarget.value as never })}
-            >
-              {#each MESH_KINDS as kind (kind)}
-                <option value={kind}>{t(`mesh.${kind}`)}</option>
-              {/each}
-            </select>
-          </label>
+          {#if selected.mesh.kind === "model"}
+            <div class="row">
+              <span class="lbl">{t("inspector.kind")}</span>
+              <input type="text" class="text-input" value={selected.modelPath ?? ""} disabled title={selected.modelPath} />
+            </div>
+          {:else}
+            <label class="row">
+              <span class="lbl">{t("inspector.kind")}</span>
+              <select
+                class="select"
+                value={selected.mesh.kind}
+                disabled={!editing}
+                onchange={(e) => store.patchMesh(selected.id, { kind: e.currentTarget.value as never })}
+              >
+                {#each MESH_KINDS as kind (kind)}
+                  <option value={kind}>{t(`mesh.${kind}`)}</option>
+                {/each}
+              </select>
+            </label>
+          {/if}
         </section>
 
         {#if selected.material}

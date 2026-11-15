@@ -5,6 +5,7 @@
   import { buildExportHtml } from "../export/playerRuntime";
   import { createThirdPersonDemo } from "../engine/demoScene";
   import { ViewportBridge } from "../engine/viewport";
+  import { b64ToBytes, isTauri, readProjectFileB64 } from "../engine/io";
   import { t } from "../i18n/index.svelte";
   import Icon from "./ui/Icon.svelte";
   import type { GizmoMode, PlayState } from "../engine/types";
@@ -32,6 +33,16 @@
       onTransformLive: (id, transform) => store.updateTransform(id, transform),
       onGizmoCommit: () => store.commit(),
       onFps: (fps) => store.setFps(fps),
+      fetchAsset: async (path) => {
+        const project = store.project;
+        if (!project || !isTauri) return null;
+        try {
+          const b64 = await readProjectFileB64(project.root, path);
+          return b64ToBytes(b64);
+        } catch {
+          return null;
+        }
+      },
     });
     // Give the runtime's api.camera control over this bridge's play camera.
     runtime.attachCamera(bridge);

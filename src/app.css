@@ -678,6 +678,200 @@ select {
   font-size: 12.5px;
 }
 
+/* ─────────────────────────── bottom dock ──────────────────────────────── */
+
+.bottom-dock {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg1);
+}
+
+.dock-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px 8px 0;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.dock-tabs button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 4px 10px 5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dock-tabs button:hover {
+  color: var(--text);
+}
+
+.dock-tabs button.docked-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-count {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  background: var(--bg3);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+
+.dock-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dock-body .console-panel {
+  border-top: none;
+}
+
+/* ─────────────────────────── asset browser ────────────────────────────── */
+
+.asset-browser {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.assets-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  flex-shrink: 0;
+}
+
+.assets-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: var(--muted);
+}
+
+.assets-project {
+  font-size: 11px;
+  color: var(--accent2);
+  background: var(--bg3);
+  border-radius: 6px;
+  padding: 1px 7px;
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.assets-grid-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 10px 10px;
+}
+
+.assets-empty {
+  color: var(--faint);
+  text-align: center;
+  padding: 22px 12px;
+  font-size: 12px;
+}
+
+.assets-empty-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.assets-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.asset-card {
+  position: relative;
+  width: 108px;
+  background: var(--bg2);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  color: var(--text);
+}
+
+.asset-card:hover {
+  border-color: var(--accent);
+  background: var(--bg3);
+}
+
+.asset-card.used {
+  border-color: rgba(124, 92, 255, 0.55);
+}
+
+.asset-thumb {
+  width: 84px;
+  height: 84px;
+  border-radius: 6px;
+  background: var(--bg0);
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+  overflow: hidden;
+}
+
+.asset-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.asset-name {
+  font-size: 11px;
+  max-width: 96px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.asset-meta {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--faint);
+}
+
+.used-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 8.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--accent2);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
 /* script editor */
 
 .script-editor {

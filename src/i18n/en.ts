@@ -25,6 +25,7 @@ const en = {
   "mesh.capsule": "Capsule",
   "mesh.torus": "Torus",
   "mesh.plane": "Plane",
+  "mesh.model": "3D Model",
 
   "light.hemispheric": "Hemispheric Light",
   "light.directional": "Directional Light",
@@ -94,6 +95,27 @@ const en = {
 
   "toolbar.export": "Export HTML",
   "toolbar.demo": "Demo",
+
+  "project.new": "New Project",
+  "project.open": "Open Project",
+  "project.created": "Project created: {name}",
+  "project.opened": "Project opened: {name}",
+  "project.sceneSaved": "Scene saved to {file}",
+  "project.desktopOnly": "Projects are available in the desktop app.",
+  "project.needProject": "Create or open a project first.",
+
+  "assets.title": "Assets",
+  "assets.importModel": "Model",
+  "assets.importTexture": "Texture",
+  "assets.importAudio": "Audio",
+  "assets.refresh": "Refresh",
+  "assets.empty": "No assets yet — import a 3D model to get started.",
+  "assets.needProject": "Create or open a project to manage assets.",
+  "assets.used": "in scene",
+  "assets.imported": "Asset imported: {name}",
+  "assets.thumbnailFailed": "Could not generate the model thumbnail.",
+
+  "export.modelsNeedProject": "Imported models need an open project to be embedded in the export.",
 
   "console.empty": "Console is empty",
   "console.clear": "Clear",

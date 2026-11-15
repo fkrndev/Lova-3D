@@ -8,6 +8,8 @@
     saveAsSceneAction,
     exportHtmlAction,
     loadDemoAction,
+    newProjectAction,
+    openProjectAction,
   } from "../engine/actions";
   import { i18n, t, type Locale } from "../i18n/index.svelte";
   import { LIGHT_KINDS, MESH_KINDS } from "../engine/types";
@@ -36,6 +38,15 @@
     <span class="brand-heart"><Icon name="heart" size={16} /></span>
     <span class="brand-name">{t("app.name")}</span>
     <span class="brand-version">v0.1</span>
+  </div>
+
+  <div class="tgroup">
+    <button class="tbtn" title={t("project.new")} onclick={() => newProjectAction()} disabled={!editing}>
+      <Icon name="folderPlus" />
+    </button>
+    <button class="tbtn" title={t("project.open")} onclick={() => openProjectAction()} disabled={!editing}>
+      <Icon name="open" />
+    </button>
   </div>
 
   <div class="tgroup">

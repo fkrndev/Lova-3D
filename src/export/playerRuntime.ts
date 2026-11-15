@@ -8,9 +8,10 @@
  */
 import type { SceneData } from "../engine/types";
 
-export function buildExportHtml(scene: SceneData): string {
+export function buildExportHtml(scene: SceneData, assets: Record<string, string> = {}): string {
   // Escape `<` so a hostile scene name can't break out of the script tag.
   const sceneJson = JSON.stringify(scene).replace(/</g, "\\u003c");
+  const assetsJson = JSON.stringify(assets).replace(/</g, "\\u003c");
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -50,6 +51,8 @@ export function buildExportHtml(scene: SceneData): string {
   "use strict";
   var DEG = Math.PI / 180, GRAVITY = 9.8;
   var SCENE = ${sceneJson};
+  // Imported model assets (project-relative path → base64), embedded at export time.
+  var ASSETS = ${assetsJson};
 
   var canvas = document.getElementById("stage");
   var engine = new BABYLON.Engine(canvas, true, { stencil: true, preserveDrawingBuffer: true }, true);
@@ -75,6 +78,24 @@ export function buildExportHtml(scene: SceneData): string {
   function col3(h) { return BABYLON.Color3.FromHexString(h.length === 9 ? h.slice(0, 7) : h); }
   function clamp01(v) { return Math.min(1, Math.max(0, v)); }
 
+  /** Load an embedded GLB/GLTF asset under the object's root node. */
+  function loadModel(entry, def) {
+    var b64 = ASSETS[def.modelPath];
+    if (!b64) { console.warn("missing embedded asset:", def.modelPath); return; }
+    var ext = (/\.([a-z0-9]+)$/i.exec(def.modelPath || "") || [, "glb"])[1].toLowerCase();
+    try {
+      // Binary data must enter as a data: URL with an empty filename.
+      var url = "data:application/octet-stream;base64," + b64;
+      BABYLON.SceneLoader.ImportMeshAsync("", url, "", scene, undefined, "." + ext).then(function (res) {
+        var roots = res.rootNodes || [];
+        if (roots.length) { roots.forEach(function (r) { r.parent = entry.root; }); }
+        else { res.meshes.forEach(function (m) { if (!m.parent) m.parent = entry.root; }); }
+      }, function (err) { console.warn("model load failed:", def.modelPath, err); });
+    } catch (e) {
+      console.warn("model load failed:", def.modelPath, e);
+    }
+  }
+
   // ── build objects ─────────────────────────────────────────────────────
   var nodes = {}; // id -> { def, root, mesh, light }
 
@@ -97,7 +118,9 @@ export function buildExportHtml(scene: SceneData): string {
     var root = new BABYLON.TransformNode(def.id, scene);
     root.name = def.name;
     var entry = { def: def, root: root, mesh: null, light: null };
-    if (def.mesh) {
+    if (def.mesh && def.mesh.kind === "model") {
+      loadModel(entry, def);
+    } else if (def.mesh) {
       var mat = new BABYLON.StandardMaterial("mat:" + def.id, scene);
       var m = def.material || {};
       mat.diffuseColor = col3(padHex(m.color || "#c8cdd6").slice(0, 7));

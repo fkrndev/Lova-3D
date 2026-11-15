@@ -16,6 +16,7 @@ export function resetStore(): void {
   store.stop();
   store.newScene();
   store.selectedIds = [];
+  store.setProject(null);
 }
 
 /** Build a fresh plain object (mesh or light) without touching the store. */

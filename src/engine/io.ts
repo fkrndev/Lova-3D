@@ -5,12 +5,65 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { open as dialogOpen, save as dialogSave } from "@tauri-apps/plugin-dialog";
-import type { SceneData } from "./types";
+import type { AssetInfo, AssetKind, ProjectInfo, SceneData } from "./types";
 
 export const isTauri: boolean =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const SCENE_FILTERS = [{ name: "Lova 3D Scene", extensions: ["json"] }];
+
+// ── project system (Tauri-only) ───────────────────────────────────────────
+
+export async function createProject(root: string, name: string): Promise<ProjectInfo> {
+  return await invoke("create_project", { root, name });
+}
+
+export async function openProject(root: string): Promise<ProjectInfo> {
+  return await invoke("open_project", { root });
+}
+
+export async function projectSaveScene(root: string, file: string, name: string, contents: string): Promise<void> {
+  await invoke("project_save_scene", { root, file, name, contents });
+}
+
+export async function importAsset(root: string, source: string, kind: AssetKind): Promise<AssetInfo> {
+  return await invoke("import_asset", { root, source, kind });
+}
+
+export async function readProjectFileB64(root: string, file: string): Promise<string> {
+  return await invoke("read_project_file_b64", { root, file });
+}
+
+export async function setAssetThumb(root: string, id: string, pngB64: string): Promise<void> {
+  await invoke("set_asset_thumb", { root, id, pngB64 });
+}
+
+/** Pick a folder (for creating/opening projects). */
+export async function pickProjectRoot(): Promise<string | null> {
+  const picked = await dialogOpen({ directory: true, multiple: false });
+  if (!picked || Array.isArray(picked)) return null;
+  return picked;
+}
+
+/** Pick asset files of a given kind to import. */
+export async function pickAssetFile(kind: AssetKind): Promise<string | null> {
+  const filters = {
+    models: [{ name: "3D Model", extensions: ["glb", "gltf"] }],
+    textures: [{ name: "Texture", extensions: ["png", "jpg", "jpeg", "webp", "bmp"] }],
+    audio: [{ name: "Audio", extensions: ["mp3", "wav", "ogg"] }],
+  }[kind];
+  const picked = await dialogOpen({ filters, multiple: false, directory: false });
+  if (!picked || Array.isArray(picked)) return null;
+  return picked;
+}
+
+/** base64 → bytes for feeding Babylon loaders. */
+export function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 
 export interface LoadedScene {
   path: string | null;
@@ -52,6 +105,9 @@ export function validateScene(text: string): SceneData {
     o.behaviors ??= [];
     o.visible ??= true;
     o.parentId ??= null;
+    if (o.mesh?.kind === "model" && typeof o.modelPath !== "string") {
+      throw new Error("model object missing modelPath");
+    }
     if (o.physics) {
       o.physics.bounce ??= 0.4;
       o.physics.gravityScale ??= 1;

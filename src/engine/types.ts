@@ -20,7 +20,9 @@ export interface Transform {
 }
 
 export const MESH_KINDS = ["box", "sphere", "cylinder", "cone", "capsule", "torus", "plane"] as const;
-export type MeshKind = (typeof MESH_KINDS)[number];
+export type PrimitiveKind = (typeof MESH_KINDS)[number];
+/** `"model"` = imported GLB/GLTF asset referenced by `GameObject.modelPath`. */
+export type MeshKind = PrimitiveKind | "model";
 
 export interface MeshDef {
   kind: MeshKind;
@@ -114,12 +116,38 @@ export interface GameObject {
   parentId: string | null;
   transform: Transform;
   mesh?: MeshDef;
+  /** Project-relative path of the GLB/GLTF asset when `mesh.kind === "model"`. */
+  modelPath?: string;
   material?: MaterialDef;
   light?: LightDef;
   physics?: PhysicsDef;
   /** JS source, run on Play: `function onStart() {}` / `function onUpdate(dt, t) {}` with `api.*`. */
   script?: string;
   behaviors: Behavior[];
+}
+
+// ── project system ────────────────────────────────────────────────────────
+
+export interface SceneRef {
+  name: string;
+  file: string;
+}
+
+export type AssetKind = "models" | "textures" | "audio";
+
+export interface AssetInfo {
+  id: string;
+  path: string;
+  kind: AssetKind;
+  bytes: number;
+  thumb: string | null;
+}
+
+export interface ProjectInfo {
+  root: string;
+  name: string;
+  scenes: SceneRef[];
+  assets: AssetInfo[];
 }
 
 export interface Environment {

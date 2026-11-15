@@ -23,11 +23,13 @@ import {
   MeshBuilder,
   PointLight,
   Scene,
+  SceneLoader,
   SpotLight,
   StandardMaterial,
   TransformNode,
   Vector3,
 } from "@babylonjs/core";
+import "@babylonjs/loaders/glTF";
 import { GridMaterial } from "@babylonjs/materials";
 import { runtime } from "./runtime";
 import type { GizmoMode, GameObject, MeshKind, PlayState, SceneData, Transform } from "./types";
@@ -46,6 +48,8 @@ export interface ViewportCallbacks {
   onGizmoCommit: () => void;
   /** Roughly twice a second. */
   onFps: (fps: number) => void;
+  /** Provides imported model bytes (project-relative path), or null. */
+  fetchAsset?: (path: string) => Promise<Uint8Array | null>;
 }
 
 interface NodeEntry {
@@ -56,6 +60,11 @@ interface NodeEntry {
   light: Light | null;
   icon: Mesh | null;
   iconMat: StandardMaterial | null;
+  /** Imported-model meshes (children of root). */
+  modelMeshes: Mesh[];
+  modelPathLoaded: string | null;
+  modelLoading: boolean;
+  modelUrl: string | null;
 }
 
 export class ViewportBridge {
@@ -297,9 +306,13 @@ export class ViewportBridge {
       light: null,
       icon: null,
       iconMat: null,
+      modelMeshes: [],
+      modelPathLoaded: null,
+      modelLoading: false,
+      modelUrl: null,
     };
 
-    if (obj.mesh) {
+    if (obj.mesh && obj.mesh.kind !== "model") {
       entry.material = new StandardMaterial(`mat:${obj.id}`, this.scene);
       entry.mesh = this.buildMesh(obj.mesh.kind, obj.id, obj.name);
       entry.mesh.parent = root;
@@ -323,7 +336,7 @@ export class ViewportBridge {
   }
 
   private buildMesh(kind: MeshKind, id: string, name: string): Mesh {
-    let mesh: Mesh;
+    let mesh!: Mesh;
     switch (kind) {
       case "box":
         mesh = MeshBuilder.CreateBox(id, { size: 1 }, this.scene);
@@ -378,8 +391,11 @@ export class ViewportBridge {
   private updateObject(entry: NodeEntry, obj: GameObject): void {
     entry.root.name = obj.name;
 
-    // Rebuild the visual mesh if the kind changed.
-    if (obj.mesh && entry.meshKind !== obj.mesh.kind) {
+    // Imported models: (re)load asynchronously when the asset path changes.
+    if (obj.mesh?.kind === "model") {
+      this.loadModel(entry, obj);
+    } else if (obj.mesh && entry.meshKind !== obj.mesh.kind) {
+      // Rebuild the visual mesh if the primitive kind changed.
       entry.mesh?.dispose();
       entry.mesh = this.buildMesh(obj.mesh.kind, obj.id, obj.name);
       entry.mesh.parent = entry.root;
@@ -422,8 +438,8 @@ export class ViewportBridge {
     entry.root.setEnabled(obj.visible);
     this.updateIconVisibility(entry);
 
-    // Material.
-    if (obj.mesh && entry.material && obj.material) {
+    // Material (primitives only — models carry their own materials).
+    if (obj.mesh && obj.mesh.kind !== "model" && entry.material && obj.material) {
       const m = obj.material;
       const bm = entry.material;
       const diff = hexToColor3(m.color);
@@ -454,6 +470,49 @@ export class ViewportBridge {
     }
   }
 
+  /** Load (or reload) an imported GLB/GLTF asset under the object's root. */
+  private loadModel(entry: NodeEntry, obj: GameObject): void {
+    const path = obj.modelPath;
+    entry.meshKind = "model";
+    if (!path || entry.modelLoading || entry.modelPathLoaded === path) return;
+    entry.modelLoading = true;
+    void (async () => {
+      try {
+        const bytes = this.cb.fetchAsset ? await this.cb.fetchAsset(path) : null;
+        if (!bytes) throw new Error(`asset unavailable: ${path}`);
+        const ext = (/\.([a-z0-9]+)$/i.exec(path)?.[1] ?? "glb").toLowerCase();
+        // Babylon concatenates baseUrl+filename, so binary data must go in as
+        // a data: URL with an empty filename + explicit plugin extension.
+        let bin = "";
+        for (let i = 0; i < bytes.length; i += 0x8000) {
+          bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        }
+        entry.modelUrl = `data:application/octet-stream;base64,${btoa(bin)}`;
+        const result = await SceneLoader.ImportMeshAsync("", entry.modelUrl, "", this.scene, undefined, `.${ext}`);
+        for (const m of entry.modelMeshes) m.dispose();
+        entry.modelMeshes = [];
+        const roots = (result as unknown as { rootNodes?: TransformNode[] }).rootNodes ?? [];
+        if (roots.length > 0) {
+          for (const r of roots) r.parent = entry.root;
+        } else {
+          for (const m of result.meshes) if (!m.parent) m.parent = entry.root;
+        }
+        // Make every loaded mesh pickable as this object.
+        for (const m of result.meshes) {
+          m.metadata = { lovaId: obj.id };
+          m.isPickable = true;
+          entry.modelMeshes.push(m as Mesh);
+        }
+        entry.modelPathLoaded = path;
+        this.applySelection();
+      } catch (e) {
+        console.warn(`[lova] model load failed (${path}):`, e);
+      } finally {
+        entry.modelLoading = false;
+      }
+    })();
+  }
+
   private updateIconVisibility(entry: NodeEntry): void {
     if (!entry.icon) return;
     entry.icon.setEnabled(this.playState === "edit");
@@ -465,6 +524,9 @@ export class ViewportBridge {
     entry.light?.dispose();
     entry.material?.dispose();
     entry.iconMat?.dispose();
+    for (const m of entry.modelMeshes) m.dispose();
+    entry.modelMeshes = [];
+    entry.modelUrl = null; // data: URLs need no revocation
     entry.root.dispose(false, false);
   }
 
@@ -504,6 +566,10 @@ export class ViewportBridge {
       if (entry.mesh) {
         this.highlight.addMesh(entry.mesh, ACCENT);
         this.highlighted.push(entry.mesh);
+      }
+      for (const m of entry.modelMeshes) {
+        this.highlight.addMesh(m, ACCENT);
+        this.highlighted.push(m);
       }
       if (entry.icon) {
         this.highlight.addMesh(entry.icon, ACCENT);

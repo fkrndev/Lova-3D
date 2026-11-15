@@ -45,6 +45,7 @@ export const kindLabel = (kind: MeshKind | LightKind): string =>
     capsule: "Capsule",
     torus: "Torus",
     plane: "Plane",
+    model: "Model",
     hemispheric: "Hemispheric Light",
     directional: "Directional Light",
     point: "Point Light",
@@ -85,6 +86,22 @@ const LIGHT_COLORS: Record<LightKind, string> = {
   point: "#ffd9a8",
   spot: "#ffe9b8",
 };
+
+/** An object referencing an imported GLB/GLTF asset (project-relative path). */
+export function createModelObject(modelPath: string, objects: GameObject[]): GameObject {
+  const base = modelPath.split(/[\\/]/).pop() ?? "Model";
+  const name = base.replace(/\.(glb|gltf)$/i, "") || "Model";
+  return {
+    id: uid(),
+    name: uniqueName(objects, name),
+    visible: true,
+    parentId: null,
+    transform: defaultTransform(),
+    mesh: { kind: "model" },
+    modelPath,
+    behaviors: [],
+  };
+}
 
 export function createLightObject(kind: LightKind, objects: GameObject[]): GameObject {
   return {

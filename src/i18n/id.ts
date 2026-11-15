@@ -27,6 +27,7 @@ const id: Dict = {
   "mesh.capsule": "Kapsul",
   "mesh.torus": "Torus",
   "mesh.plane": "Bidang",
+  "mesh.model": "Model 3D",
 
   "light.hemispheric": "Cahaya Hemisferik",
   "light.directional": "Cahaya Arah",
@@ -96,6 +97,27 @@ const id: Dict = {
 
   "toolbar.export": "Ekspor HTML",
   "toolbar.demo": "Demo",
+
+  "project.new": "Project Baru",
+  "project.open": "Buka Project",
+  "project.created": "Project dibuat: {name}",
+  "project.opened": "Project dibuka: {name}",
+  "project.sceneSaved": "Scene disimpan ke {file}",
+  "project.desktopOnly": "Project hanya tersedia di aplikasi desktop.",
+  "project.needProject": "Buat atau buka project terlebih dahulu.",
+
+  "assets.title": "Aset",
+  "assets.importModel": "Model",
+  "assets.importTexture": "Tekstur",
+  "assets.importAudio": "Audio",
+  "assets.refresh": "Segarkan",
+  "assets.empty": "Belum ada aset — impor model 3D untuk memulai.",
+  "assets.needProject": "Buat atau buka project untuk mengelola aset.",
+  "assets.used": "di scene",
+  "assets.imported": "Aset diimpor: {name}",
+  "assets.thumbnailFailed": "Gagal membuat thumbnail model.",
+
+  "export.modelsNeedProject": "Model impor butuh project yang terbuka agar bisa disematkan ke ekspor.",
 
   "console.empty": "Konsol kosong",
   "console.clear": "Bersihkan",

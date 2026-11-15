@@ -11,6 +11,17 @@ come alive, then save the whole thing as a portable JSON file.
 
 ## Features
 
+### Project system (v0.3)
+- **Projects are folders**: `project.json` + `scenes/` + `assets/{models,textures,audio}` + `materials/` + `builds/`, with a **SQLite index** (`.lova/index.db`) tracking scenes, assets and metadata (rusqlite)
+- New Project / Open Project from the toolbar; Ctrl+S saves into `scenes/<name>.scene.json` and updates the index; reopening loads the main scene back
+- Standalone scene files still work without a project
+
+### Asset manager (v0.3)
+- **Import GLB/GLTF** (plus textures & audio) into the project — files are copied into `assets/`, deduplicated automatically, indexed in SQLite
+- **Asset Browser** in the bottom dock (tabs: Assets | Console) with **offscreen-rendered model thumbnails**
+- Click a model card to reuse it in the scene — picking, gizmos, hierarchy and highlighting all work on imported meshes
+- Exported HTML games embed imported models as data URIs (still one single file)
+
 - **3D viewport** — orbit/pan/zoom camera, grid ground, click picking with outline
   highlight, multi-select (Ctrl+click)
 - **Gizmos** — move / rotate / scale (W / E / R), one history entry per drag
@@ -177,7 +188,7 @@ npm run tauri -- icon app-icon.png
 ## Roadmap ideas
 
 - MCP agent mode (AI agents building games through the editor)
-- GLB/GLTF asset import & asset browser
+- Scene camera object, texture application to materials
 - Multi-scene projects, prefabs/templates
 - Physics: rotated-parent support, box colliders, joints
 - Inline-Babylon export (offline single file)
