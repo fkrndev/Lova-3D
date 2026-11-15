@@ -30,7 +30,7 @@ jobs:
         run: npm run build
 
   rust:
-    name: Rust backend (cargo check)
+    name: Rust backend (cargo test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,5 +46,5 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: cargo check
-        run: cargo check --manifest-path src-tauri/Cargo.toml
+      - name: cargo test (save/load commands)
+        run: cargo test --manifest-path src-tauri/Cargo.toml

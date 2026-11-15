@@ -23,3 +23,47 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running Lova 3D");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_path(name: &str) -> PathBuf {
+        let mut p = std::env::temp_dir();
+        p.push(format!("lova3d-test-{}-{}", name, std::process::id()));
+        p
+    }
+
+    #[test]
+    fn save_then_load_roundtrips() {
+        let path = temp_path("roundtrip.json");
+        let contents = r#"{"version":1,"name":"roundtrip","objects":[]}"#;
+        save_scene(path.to_string_lossy().into_owned(), contents.to_string()).unwrap();
+        let loaded = load_scene(path.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(loaded, contents);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_overwrites_existing_files() {
+        let path = temp_path("overwrite.json");
+        save_scene(path.to_string_lossy().into_owned(), "v1".into()).unwrap();
+        save_scene(path.to_string_lossy().into_owned(), "v2-longer".into()).unwrap();
+        assert_eq!(load_scene(path.to_string_lossy().into_owned()).unwrap(), "v2-longer");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_missing_file_returns_a_helpful_error() {
+        let err = load_scene("Z:/definitely/missing/lova3d-scene.json".to_string()).unwrap_err();
+        assert!(err.contains("failed to read"), "unexpected error: {err}");
+        assert!(err.contains("missing"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn save_to_an_invalid_path_returns_an_error() {
+        let err = save_scene("Z:/no/such/dir/scene.json".to_string(), "{}".to_string()).unwrap_err();
+        assert!(err.contains("failed to write"), "unexpected error: {err}");
+    }
+}

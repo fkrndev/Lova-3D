@@ -161,8 +161,11 @@ Highlights: exact reparent compensation under scaled parents, ball-drop settle
 and bounce trajectories, AABB platform landing, moving-platform carry,
 push-regression (separating-velocity guard), jump-with-grounded, undo/redo
 snapshot counts, autosave & crash recovery, EN/ID dictionary parity, and
-`</script>` escaping in the HTML exporter. CI runs the suite plus
-`svelte-check`, `vite build` and `cargo check` on every push.
+`</script>` escaping in the HTML exporter. Persistence is covered on all three
+layers: browser download/upload fallbacks (jsdom), the Tauri path with mocked
+dialogs/`invoke`, and real filesystem round-trips in `cargo test` for the Rust
+`save_scene`/`load_scene` commands. CI runs the suite plus `svelte-check`,
+`vite build` and `cargo test` on every push.
 
 ## Regenerating the app icon
 
