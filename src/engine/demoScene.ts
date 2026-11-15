@@ -55,7 +55,7 @@ function onUpdate(dt, t) {
 
   // Coin counter HUD.
   var left = 0;
-  for (var i = 1; i <= 5; i++) {
+  for (var i = 1; i <= 6; i++) {
     var c = api.find("Coin" + i);
     if (c && c.scale.x > 0.1) left++;
   }
@@ -77,6 +77,17 @@ function onUpdate(dt, t) {
 const MOVER_SCRIPT = `var baseX = 6;
 function onUpdate(dt, t) {
   api.position = { x: baseX + Math.sin(t * 0.8) * 2.5, y: api.position.y, z: api.position.z };
+}`;
+
+/** Climb wall: hold W near it to ascend (Roblox-style climbing). */
+const CLIMB_SCRIPT = `var player = api.find("Player");
+function onUpdate(dt, t) {
+  if (!player) return;
+  var p = player.position, m = api.position;
+  var near = Math.abs(p.x - m.x) < 1.6 && Math.abs(p.z - m.z) < 1.6 && p.y > m.y - 1.5 && p.y < m.y + 2.6;
+  if (near && (api.key("KeyW") || api.key("ArrowUp"))) {
+    player.velocity = { x: 0, y: 2.8, z: 0 };
+  }
 }`;
 
 function mesh(kind: Parameters<typeof createMeshObject>[0], name: string): GameObject {
@@ -137,11 +148,27 @@ export function createThirdPersonDemo(): SceneData {
     objects.push(place(mesh("box", name), pos, scale, color, { physics: "static" }));
   }
 
-  // Moving platform (scripted).
+  // Moving platform (scripted) — riders are carried by the physics engine.
   const mover = mesh("box", "MovingPlatform");
   place(mover, [6, 2.25, -4], [3, 0.5, 3], "#7c5cff", { physics: "static" });
   mover.script = MOVER_SCRIPT;
   objects.push(mover);
+
+  // Climb tower: hold W against the wall to climb, coin on top.
+  const tower = mesh("box", "Tower");
+  place(tower, [10, 2, 6], [3, 4, 3], "#8a6f5c", { physics: "static" });
+  objects.push(tower);
+
+  const climbWall = mesh("box", "ClimbWall");
+  place(climbWall, [10, 2, 3.7], [2.4, 4, 0.3], "#c8a17a");
+  climbWall.script = CLIMB_SCRIPT; // no physics — it is a trigger, not a collider
+  objects.push(climbWall);
+
+  // Pushable crate (dynamic — walk into it).
+  const crate = mesh("cylinder", "Crate");
+  place(crate, [-6, 0.55, 3], [1, 1, 1], "#c9a227", { physics: "dynamic" });
+  crate.physics!.bounce = 0.25;
+  objects.push(crate);
 
   // Spinning hazard.
   const hazard = mesh("torus", "Hazard");
@@ -175,6 +202,7 @@ export function createThirdPersonDemo(): SceneData {
     [-1, 3.1, -13],
     [-5, 4.6, -5],
     [6, 3.2, -4],
+    [10, 5.3, 6], // on top of the climb tower
   ];
   coinSpots.forEach((pos, i) => {
     const coin = mesh("cylinder", `Coin${i + 1}`);

@@ -74,6 +74,8 @@ export class Runtime {
   private keyListeners: Array<() => void> = [];
   private groundedMap = new Map<string, boolean>();
   private velocityWarned = new Set<string>();
+  /** Previous-frame centers of static AABB colliders (moving-platform carry). */
+  private aabbPrev = new Map<string, { x: number; y: number; z: number }>();
   private cameraBridge: PlayCameraBridge | null = null;
   private time = 0;
   private active = false;
@@ -142,6 +144,7 @@ export class Runtime {
     this.scripts.clear();
     this.groundedMap.clear();
     this.velocityWarned.clear();
+    this.aabbPrev.clear();
     this.keys.clear();
     store.playHud = "";
     for (const off of this.keyListeners) off();
@@ -227,10 +230,12 @@ export class Runtime {
     if (grounds.length === 0) grounds.push(0);
 
     // Static box meshes act as axis-aligned colliders (world half extents).
-    const aabbs: Array<{ obj: GameObject; cx: number; cy: number; cz: number; hx: number; hy: number; hz: number }> = [];
+    // Their per-tick delta makes moving platforms carry riders.
+    const aabbs: Array<{ obj: GameObject; cx: number; cy: number; cz: number; hx: number; hy: number; hz: number; dx: number; dy: number; dz: number }> = [];
     for (const obj of objects) {
       if (obj.physics?.type !== "static" || obj.mesh?.kind !== "box") continue;
       const wt = store.worldTransformOf(obj);
+      const prev = this.aabbPrev.get(obj.id);
       aabbs.push({
         obj,
         cx: wt.position.x,
@@ -239,6 +244,9 @@ export class Runtime {
         hx: Math.max(wt.scale.x, 0.01) / 2,
         hy: Math.max(wt.scale.y, 0.01) / 2,
         hz: Math.max(wt.scale.z, 0.01) / 2,
+        dx: prev ? wt.position.x - prev.x : 0,
+        dy: prev ? wt.position.y - prev.y : 0,
+        dz: prev ? wt.position.z - prev.z : 0,
       });
     }
 
@@ -316,6 +324,10 @@ export class Runtime {
         if (ny > 0.5) {
           grounded = true;
           if (Math.abs(vel.y) < 0.9) vel.y = 0;
+          // Ride the collider: moving platforms/elevators carry their riders.
+          world.x += box.dx;
+          world.y += box.dy;
+          world.z += box.dz;
         }
       }
 
@@ -331,11 +343,19 @@ export class Runtime {
       this.writeWorldPosition(obj, world);
     }
 
-    // Sphere/sphere collisions between round bodies — planes (ground
-    // half-spaces) and boxes (AABB colliders) are excluded: a 40×2 wall must
-    // not act as a radius-20 sphere.
+    // Remember collider centers for next tick's carry delta.
+    for (const b of aabbs) this.aabbPrev.set(b.obj.id, { x: b.cx, y: b.cy, z: b.cz });
+
+    // Sphere/sphere collisions between dynamic-approximated bodies — planes
+    // (ground half-spaces) and STATIC boxes (AABB colliders) are excluded: a
+    // 40×2 wall must not act as a radius-20 sphere. Dynamic boxes join as
+    // spheres, matching their physics radius.
     const bodies = objects.filter(
-      (o) => o.physics && o.mesh && o.mesh.kind !== "plane" && o.mesh.kind !== "box"
+      (o) =>
+        o.physics &&
+        o.mesh &&
+        o.mesh.kind !== "plane" &&
+        (o.mesh.kind !== "box" || o.physics.type === "dynamic")
     );
     for (let i = 0; i < bodies.length; i++) {
       for (let j = i + 1; j < bodies.length; j++) {
@@ -380,20 +400,20 @@ export class Runtime {
           vby = vb?.y ?? 0,
           vbz = vb?.z ?? 0;
         const rel = (vax - vbx) * nx + (vay - vby) * ny + (vaz - vbz) * nz;
-        if (rel > 0) continue; // already separating
+        if (rel <= 0) continue; // already separating (rel > 0 = closing along a→b)
         const restitution = Math.min(a.physics!.bounce, b.physics!.bounce);
-        const impulse = -(1 + restitution) * rel;
+        const impulse = -(1 + restitution) * rel; // negative along n → separates the pair
         if (aDyn && va) {
           va.x += impulse * nx;
           va.y += impulse * ny;
           va.z += impulse * nz;
-          if (ny < -0.5) this.groundedMap.set(a.id, true); // landed on top of b
+          if (ny < -0.5) this.groundedMap.set(a.id, true); // a rests on top of b
         }
         if (bDyn && vb) {
           vb.x -= impulse * nx;
           vb.y -= impulse * ny;
           vb.z -= impulse * nz;
-          if (ny > 0.5) this.groundedMap.set(b.id, true); // landed on top of a
+          if (ny > 0.5) this.groundedMap.set(b.id, true); // b rests on top of a
         }
       }
     }

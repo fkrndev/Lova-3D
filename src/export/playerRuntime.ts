@@ -274,6 +274,7 @@ export function buildExportHtml(scene: SceneData): string {
 
   // ── per-frame simulation (mirrors the editor runtime) ─────────────────
   var time = 0;
+  var aabbPrev = {}; // persists across frames for moving-platform carry deltas
   engine.runRenderLoop(function () {
     var dt = Math.min(engine.getDeltaTime() / 1000, 0.1);
     time += dt;
@@ -314,7 +315,13 @@ export function buildExportHtml(scene: SceneData): string {
       if (o.physics.type === "static" && o.mesh.kind === "plane") grounds.push(worldPos(o).y);
       if (o.physics.type === "static" && o.mesh.kind === "box") {
         var wt = worldTransform(o);
-        aabbs.push({ cx: wt.position.x, cy: wt.position.y, cz: wt.position.z, hx: Math.max(wt.scale.x, 0.01) / 2, hy: Math.max(wt.scale.y, 0.01) / 2, hz: Math.max(wt.scale.z, 0.01) / 2 });
+        var prev = aabbPrev[o.id];
+        aabbs.push({
+          id: o.id,
+          cx: wt.position.x, cy: wt.position.y, cz: wt.position.z,
+          hx: Math.max(wt.scale.x, 0.01) / 2, hy: Math.max(wt.scale.y, 0.01) / 2, hz: Math.max(wt.scale.z, 0.01) / 2,
+          dx: prev ? wt.position.x - prev.x : 0, dy: prev ? wt.position.y - prev.y : 0, dz: prev ? wt.position.z - prev.z : 0
+        });
       }
     });
     if (!grounds.length) grounds.push(0);
@@ -354,15 +361,23 @@ export function buildExportHtml(scene: SceneData): string {
           var e = 1 + o.physics.bounce;
           v.x -= e * vn * nx; v.y -= e * vn * ny; v.z -= e * vn * nz;
         }
-        if (ny > 0.5) { grounded = true; if (Math.abs(v.y) < 0.9) v.y = 0; }
+        if (ny > 0.5) {
+          grounded = true;
+          if (Math.abs(v.y) < 0.9) v.y = 0;
+          // Ride the collider: moving platforms carry their riders.
+          w.x += b.dx; w.y += b.dy; w.z += b.dz;
+        }
       });
       groundedMap[o.id] = grounded;
       if (grounded) { var damp = Math.max(0, 1 - 6 * dt); v.x *= damp; v.z *= damp; }
       writeWorld(o, w);
     });
+    aabbs.forEach(function (b) { aabbPrev[b.id] = { x: b.cx, y: b.cy, z: b.cz }; });
 
-    // sphere/sphere collisions (planes & boxes excluded — ground half-spaces / AABBs)
-    var bodies = SCENE.objects.filter(function (o) { return o.physics && o.mesh && o.mesh.kind !== "plane" && o.mesh.kind !== "box"; });
+    // sphere/sphere collisions (planes & static boxes excluded — half-spaces / AABBs; dynamic boxes join as spheres)
+    var bodies = SCENE.objects.filter(function (o) {
+      return o.physics && o.mesh && o.mesh.kind !== "plane" && (o.mesh.kind !== "box" || o.physics.type === "dynamic");
+    });
     for (var i = 0; i < bodies.length; i++) {
       for (var j = i + 1; j < bodies.length; j++) {
         var a = bodies[i], b = bodies[j];
@@ -380,7 +395,7 @@ export function buildExportHtml(scene: SceneData): string {
         else if (bDyn) push(b, nx * pen, ny * pen, nz * pen);
         var va = vel[a.id] || { x: 0, y: 0, z: 0 }, vb = vel[b.id] || { x: 0, y: 0, z: 0 };
         var rel = (va.x - vb.x) * nx + (va.y - vb.y) * ny + (va.z - vb.z) * nz;
-        if (rel > 0) continue;
+        if (rel <= 0) continue; // already separating
         var imp = -(1 + Math.min(a.physics.bounce, b.physics.bounce)) * rel;
         if (aDyn) { va.x += imp * nx; va.y += imp * ny; va.z += imp * nz; }
         if (bDyn) { vb.x -= imp * nx; vb.y -= imp * ny; vb.z -= imp * nz; }

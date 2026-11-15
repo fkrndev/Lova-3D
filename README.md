@@ -45,10 +45,11 @@ come alive, then save the whole thing as a portable JSON file.
 Click the **Demo** button in the toolbar for a ready-made Roblox-style mini game:
 a blocky character (parented limbs that swing while walking), WASD/arrow
 movement relative to the camera, Space to jump, a draggable third-person camera,
-collectible coins with an HUD counter, AABB platforms, a moving platform and a
-spinning hazard. Then press **Export HTML** to get the same game as a single
-playable file. The demo is ordinary scene data — every mechanic is a script you
-can read and edit in the Inspector.
+collectible coins with an HUD counter, AABB platforms, a moving platform that
+**carries riders**, a climbable tower (hold W against the wall), a pushable
+crate and a spinning hazard. Then press **Export HTML** to get the same game as
+a single playable file. The demo is ordinary scene data — every mechanic is a
+script you can read and edit in the Inspector.
 
 ## Getting started
 
