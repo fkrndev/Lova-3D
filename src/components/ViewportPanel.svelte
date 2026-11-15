@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { store } from "../engine/sceneStore.svelte";
-  import { ViewportBridge } from "../engine/viewport";
+import { store } from "../engine/sceneStore.svelte";
+import { runtime } from "../engine/runtime";
+import { ViewportBridge } from "../engine/viewport";
   import { t } from "../i18n/index.svelte";
   import Icon from "./ui/Icon.svelte";
   import type { GizmoMode, PlayState } from "../engine/types";
@@ -30,6 +31,8 @@
       onGizmoCommit: () => store.commit(),
       onFps: (fps) => store.setFps(fps),
     });
+    // Debug handle for QA from devtools (stripped from any production logic paths).
+    (window as unknown as Record<string, unknown>).__lova = { store, bridge, runtime };
     const ro = new ResizeObserver(() => bridge?.resize());
     ro.observe(container);
     return () => {

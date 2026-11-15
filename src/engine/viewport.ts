@@ -83,7 +83,9 @@ export class ViewportBridge {
     private canvas: HTMLCanvasElement,
     private cb: ViewportCallbacks
   ) {
-    this.engine = new Engine(canvas, true, { stencil: true }, true);
+    // preserveDrawingBuffer keeps the framebuffer readable (canvas.toDataURL),
+    // which enables thumbnails/export and reliable QA captures.
+    this.engine = new Engine(canvas, true, { stencil: true, preserveDrawingBuffer: true }, true);
     this.scene = new Scene(this.engine);
     this.scene.clearColor = Color4.FromHexString("#101318ff");
 
@@ -363,9 +365,9 @@ export class ViewportBridge {
     if (obj.mesh && entry.material && obj.material) {
       const m = obj.material;
       const bm = entry.material;
-      const diff = Color3.FromHexString(padHex(m.color));
+      const diff = hexToColor3(m.color);
       if (!bm.diffuseColor.equals(diff)) bm.diffuseColor = diff;
-      const emis = Color3.FromHexString(padHex(m.emissive));
+      const emis = hexToColor3(m.emissive);
       if (!bm.emissiveColor.equals(emis)) bm.emissiveColor = emis;
       // Approximate metallic/roughness with the standard material model.
       const spec = new Color3(m.metallic, m.metallic, m.metallic);
@@ -380,14 +382,14 @@ export class ViewportBridge {
     // Light params.
     if (obj.light && entry.light) {
       entry.light.intensity = obj.light.intensity;
-      entry.light.diffuse = Color3.FromHexString(padHex(obj.light.diffuse));
+      entry.light.diffuse = hexToColor3(obj.light.diffuse);
       if (entry.light instanceof SpotLight) {
         entry.light.angle = obj.light.angleDeg * DEG;
         entry.light.exponent = obj.light.exponent;
       }
     }
     if (entry.iconMat) {
-      entry.iconMat.emissiveColor = Color3.FromHexString(padHex(obj.light?.diffuse ?? "#ffffff"));
+      entry.iconMat.emissiveColor = hexToColor3(obj.light?.diffuse ?? "#ffffff");
     }
   }
 
@@ -534,6 +536,15 @@ function clamp01(v: number): number {
 
 function padHex(hex: string): string {
   return hex.length === 7 ? `${hex}ff` : hex.length === 9 ? hex : "#101318ff";
+}
+
+/**
+ * Color3.FromHexString rejects `#rrggbbaa` strings (returns black!), so strip
+ * the alpha byte before converting.
+ */
+function hexToColor3(hex: string): Color3 {
+  const h = hex.length === 9 ? hex.slice(0, 7) : hex.length === 7 ? hex : "#101318";
+  return Color3.FromHexString(h);
 }
 
 function lightClassName(kind: string): string {
