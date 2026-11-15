@@ -44,6 +44,7 @@ const id: Dict = {
   "hierarchy.search": "Cari objek…",
   "hierarchy.empty": "Belum ada objek di scene",
   "hierarchy.delete": "Hapus",
+  "hierarchy.toggle": "Ciutkan / perluas",
 
   "inspector.nothingSelected": "Tidak ada seleksi",
   "inspector.object": "Objek",
@@ -80,6 +81,21 @@ const id: Dict = {
   "inspector.ambient": "Ambien",
   "inspector.selectHint": "Pilih objek di viewport atau hierarki untuk menyuntingnya.",
 
+  "inspector.physics": "Fisika",
+  "physics.none": "Tidak ada",
+  "physics.static": "Statis",
+  "physics.dynamic": "Dinamis",
+  "physics.bounce": "Pantulan",
+  "physics.gravityScale": "Skala Gravitasi",
+  "physics.velocity": "Kecepatan",
+
+  "inspector.script": "Skrip",
+  "script.placeholder": "// function onStart() {}\n// function onUpdate(dt, t) {}",
+  "script.example": "Sisipkan contoh",
+  "script.hint": "Berjalan saat Play — api: position, rotation (°), scale, find(name), key(code), log(...)",
+
+  "toolbar.export": "Ekspor HTML",
+
   "console.empty": "Konsol kosong",
   "console.clear": "Bersihkan",
   "console.all": "Semua",
@@ -110,11 +126,14 @@ const id: Dict = {
   "log.addObj": "Ditambahkan: {name}",
   "log.removeObjs": "{count} objek dihapus",
   "log.duplicate": "{count} objek diduplikasi",
-  "log.invalidScene": "Bukan file scene LovaEngine yang valid",
+  "log.invalidScene": "Bukan file scene Lova 3D yang valid",
   "log.saveFailed": "Gagal menyimpan: {msg}",
   "log.loadFailed": "Gagal memuat: {msg}",
+  "log.exportedHtml": "HTML playable diekspor ke {path}",
+  "log.recovered": "Scene yang belum disimpan dari sesi lalu dipulihkan",
 
   "confirm.new": "Buang perubahan yang belum disimpan dan mulai scene baru?",
+  "confirm.close": "Ada perubahan yang belum disimpan. Tetap tutup?",
 };
 
 export default id;

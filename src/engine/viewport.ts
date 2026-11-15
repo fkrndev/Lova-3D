@@ -147,8 +147,10 @@ export class ViewportBridge {
   /** Full diff-sync of the Babylon scene from the store's scene data. */
   syncScene(scene: SceneData): void {
     const seen = new Set<string>();
+    const byId = new Map<string, GameObject>();
     for (const obj of scene.objects) {
       seen.add(obj.id);
+      byId.set(obj.id, obj);
       let entry = this.nodes.get(obj.id);
       if (!entry) {
         entry = this.createObject(obj);
@@ -161,6 +163,12 @@ export class ViewportBridge {
         this.disposeEntry(entry);
         this.nodes.delete(id);
       }
+    }
+    // Hierarchy pass: attach roots to their parents (Babylon composes world transforms).
+    for (const [id, entry] of this.nodes) {
+      const parentId = byId.get(id)?.parentId ?? null;
+      const parentRoot = parentId ? this.nodes.get(parentId)?.root ?? null : null;
+      if (entry.root.parent !== parentRoot) entry.root.parent = parentRoot;
     }
     this.scene.clearColor = Color4.FromHexString(padHex(scene.environment.background));
     this.editorHemi.intensity = scene.environment.ambient;

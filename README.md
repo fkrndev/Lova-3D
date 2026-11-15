@@ -14,13 +14,24 @@ come alive, then save the whole thing as a portable JSON file.
 - **3D viewport** — orbit/pan/zoom camera, grid ground, click picking with outline
   highlight, multi-select (Ctrl+click)
 - **Gizmos** — move / rotate / scale (W / E / R), one history entry per drag
-- **Hierarchy panel** — search, rename (double-click), visibility toggle, delete
+- **Hierarchy panel** — parent/child tree with drag-drop reparenting (world
+  position preserved), expand/collapse, search, rename, visibility, delete
+- **Physics (v0.2)** — static & dynamic bodies: gravity, bounce restitution,
+  initial velocity, ground & object collisions — simulated during Play
+- **Scripting (v0.2)** — per-object JavaScript with `onStart()` / `onUpdate(dt, t)`
+  hooks and an `api` (position/rotation/scale, `find(name)`, `key(code)`, `log`)
+  — enough for player controllers; runs during Play
+- **Export playable HTML (v0.2)** — one click writes a single self-contained
+  `.html` (Babylon.js via CDN + inlined scene) that anyone can open and play
+- **Stability (v0.2)** — autosave with crash recovery on next launch, and a
+  native close guard when there are unsaved changes
 - **Inspector** — transform, mesh kind, material (color, emissive, metallic,
   roughness, wireframe), light parameters
 - **Lights** — hemispheric, directional, point and spot lights
 - **Behaviors** — attach Spin / Bob / Orbit to any object and press Play
 - **Play mode** — snapshot-based: Stop restores the edit-time scene exactly
-- **Undo / Redo** — snapshot history (Ctrl+Z / Ctrl+Y), up to 64 steps
+- **Undo / Redo** — snapshot history (Ctrl+Z / Ctrl+Y), up to 64 steps — agent
+  and physics edits included
 - **Save / Load** — native open/save dialogs, human-readable JSON scenes
   (Ctrl+S / Ctrl+O)
 - **Bilingual UI** — English (default) & Bahasa Indonesia, persisted
@@ -130,10 +141,11 @@ npm run tauri -- icon app-icon.png
 
 ## Roadmap ideas
 
+- MCP agent mode (AI agents building games through the editor)
 - GLB/GLTF asset import & asset browser
-- Scripting (per-object JS behaviors)
-- Physics behaviors (gravity, collisions)
-- Parent/child hierarchy
+- Multi-scene projects, prefabs/templates
+- Physics: rotated-parent support, box colliders, joints
+- Inline-Babylon export (offline single file)
 - Resizable panels
 
 ## License

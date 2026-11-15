@@ -67,9 +67,14 @@ export function createMeshObject(kind: MeshKind, objects: GameObject[]): GameObj
     id: uid(),
     name: uniqueName(objects, kindLabel(kind)),
     visible: true,
+    parentId: null,
     transform: defaultTransform(),
     mesh: { kind },
     material: defaultMaterial(),
+    // Ground planes make sensible default colliders.
+    ...(kind === "plane"
+      ? { physics: { type: "static", bounce: 0.3, gravityScale: 1, velocity: { x: 0, y: 0, z: 0 } } }
+      : {}),
     behaviors: [],
   };
 }
@@ -86,6 +91,7 @@ export function createLightObject(kind: LightKind, objects: GameObject[]): GameO
     id: uid(),
     name: uniqueName(objects, kindLabel(kind)),
     visible: true,
+    parentId: null,
     // Lights are placed a bit above the ground so they are immediately visible.
     transform: {
       position: { x: 0, y: kind === "hemispheric" ? 8 : 5, z: 0 },
@@ -127,6 +133,7 @@ export function createDefaultScene(): SceneData {
   ground.transform.scale = { x: 24, y: 1, z: 24 };
   ground.material!.color = "#232833";
   ground.material!.roughness = 0.9;
+  ground.physics = { type: "static", bounce: 0.35, gravityScale: 1, velocity: { x: 0, y: 0, z: 0 } };
   objects.push(ground);
 
   const cube = createMeshObject("box", objects);

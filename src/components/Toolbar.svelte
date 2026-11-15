@@ -6,6 +6,7 @@
     openSceneAction,
     saveSceneAction,
     saveAsSceneAction,
+    exportHtmlAction,
   } from "../engine/actions";
   import { i18n, t, type Locale } from "../i18n/index.svelte";
   import { LIGHT_KINDS, MESH_KINDS } from "../engine/types";
@@ -45,6 +46,9 @@
     </button>
     <button class="tbtn" title={t("toolbar.save")} onclick={() => saveSceneAction()} disabled={!editing}>
       <Icon name="save" />
+    </button>
+    <button class="tbtn" title={t("toolbar.export")} onclick={() => exportHtmlAction()} disabled={!editing}>
+      <Icon name="export" />
     </button>
   </div>
 

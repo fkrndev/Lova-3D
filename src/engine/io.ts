@@ -51,6 +51,12 @@ export function validateScene(text: string): SceneData {
   for (const o of scene.objects) {
     o.behaviors ??= [];
     o.visible ??= true;
+    o.parentId ??= null;
+    if (o.physics) {
+      o.physics.bounce ??= 0.4;
+      o.physics.gravityScale ??= 1;
+      o.physics.velocity ??= { x: 0, y: 0, z: 0 };
+    }
   }
   scene.environment.background ??= "#101318";
   scene.environment.ambient ??= 0.35;
@@ -58,25 +64,28 @@ export function validateScene(text: string): SceneData {
 }
 
 /** Ask the user where to save; resolves `null` when cancelled. */
-export async function pickSavePath(defaultName = "scene.lova.json"): Promise<string | null> {
+export async function pickSavePath(
+  defaultName = "scene.lova.json",
+  filters: Array<{ name: string; extensions: string[] }> = SCENE_FILTERS
+): Promise<string | null> {
   if (isTauri) {
-    return await dialogSave({ filters: SCENE_FILTERS, defaultPath: defaultName });
+    return await dialogSave({ filters, defaultPath: defaultName });
   }
   // Browser fallback: the filename is used for the download.
   return defaultName;
 }
 
-/** Write the scene to `path` (native) or trigger a download (browser). */
+/** Write text to `path` (native) or trigger a download (browser). */
 export async function writeSceneFile(path: string, contents: string): Promise<void> {
   if (isTauri) {
     await invoke("save_scene", { path, contents });
     return;
   }
-  const blob = new Blob([contents], { type: "application/json" });
+  const blob = new Blob([contents], { type: "application/octet-stream" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = path.endsWith(".json") ? path : `${path}.json`;
+  a.download = path;
   a.click();
   URL.revokeObjectURL(url);
 }

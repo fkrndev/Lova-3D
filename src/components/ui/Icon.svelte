@@ -27,6 +27,8 @@
     duplicate: `<rect x="6" y="6" width="8" height="8" rx="1"/><path d="M10 3H4a1 1 0 0 0-1 1v6"/>`,
     x: `<path d="M4 4l8 8M12 4l-8 8"/>`,
     search: `<circle cx="7" cy="7" r="4"/><path d="M10 10l3.5 3.5"/>`,
+    chevron: `<path d="M4 6l4 4 4-4"/>`,
+    export: `<path d="M8 10.5V2.5M8 2.5 5 5.5M8 2.5l3 3"/><path d="M2.5 10.5v2a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-2"/>`,
   };
 
   let { name, size = 15 }: { name: string; size?: number } = $props();

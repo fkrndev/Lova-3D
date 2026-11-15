@@ -42,6 +42,7 @@ const en = {
   "hierarchy.search": "Search objects…",
   "hierarchy.empty": "No objects in scene",
   "hierarchy.delete": "Delete",
+  "hierarchy.toggle": "Collapse / expand",
 
   "inspector.nothingSelected": "Nothing selected",
   "inspector.object": "Object",
@@ -78,6 +79,21 @@ const en = {
   "inspector.ambient": "Ambient",
   "inspector.selectHint": "Select an object in the viewport or hierarchy to edit it.",
 
+  "inspector.physics": "Physics",
+  "physics.none": "None",
+  "physics.static": "Static",
+  "physics.dynamic": "Dynamic",
+  "physics.bounce": "Bounce",
+  "physics.gravityScale": "Gravity Scale",
+  "physics.velocity": "Velocity",
+
+  "inspector.script": "Script",
+  "script.placeholder": "// function onStart() {}\n// function onUpdate(dt, t) {}",
+  "script.example": "Insert example",
+  "script.hint": "Runs on Play — api: position, rotation (°), scale, find(name), key(code), log(...)",
+
+  "toolbar.export": "Export HTML",
+
   "console.empty": "Console is empty",
   "console.clear": "Clear",
   "console.all": "All",
@@ -108,11 +124,14 @@ const en = {
   "log.addObj": "Added: {name}",
   "log.removeObjs": "{count} object(s) deleted",
   "log.duplicate": "{count} object(s) duplicated",
-  "log.invalidScene": "Not a valid LovaEngine scene file",
+  "log.invalidScene": "Not a valid Lova 3D scene file",
   "log.saveFailed": "Save failed: {msg}",
   "log.loadFailed": "Load failed: {msg}",
+  "log.exportedHtml": "Playable HTML exported to {path}",
+  "log.recovered": "Recovered unsaved scene from last session",
 
   "confirm.new": "Discard unsaved changes and start a new scene?",
+  "confirm.close": "You have unsaved changes. Close anyway?",
 };
 
 export default en;

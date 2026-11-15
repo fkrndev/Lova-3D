@@ -23,6 +23,24 @@
 
   let behaviorChoice = $state("");
 
+  const SCRIPT_EXAMPLE = `// Lova 3D script — runs on Play.
+// api: position, rotation (deg), scale, find(name), key(code), log(...)
+let speed = 2;
+
+function onStart() {
+  api.log(api.name + " started");
+}
+
+function onUpdate(dt, t) {
+  // Example: player controller
+  // if (api.key("KeyA")) api.position = { ...api.position, x: api.position.x - speed * dt };
+  // if (api.key("KeyD")) api.position = { ...api.position, x: api.position.x + speed * dt };
+
+  // Example: float around the start position
+  // api.position = { x: Math.cos(t * speed) * 2, y: 1 + Math.sin(t * 2) * 0.5, z: 0 };
+}
+`;
+
   // ── transform helpers ────────────────────────────────────────────────
   function setTransformPart(part: "position" | "rotation" | "scale", v: Vec3): void {
     const obj = selected;
@@ -382,6 +400,93 @@
             {/each}
           </select>
         {/if}
+      </section>
+
+      <!-- ── Physics ─────────────────────────────────────────────── -->
+      {#if selected.mesh}
+        <section class="isection">
+          <h3>{t("inspector.physics")}</h3>
+          <label class="row">
+            <span class="lbl">{t("inspector.kind")}</span>
+            <select
+              class="select"
+              value={selected.physics?.type ?? "none"}
+              disabled={!editing}
+              onchange={(e) => {
+                const v = e.currentTarget.value;
+                if (v === "none") store.removePhysics(selected.id);
+                else store.setPhysics(selected.id, v as "static" | "dynamic");
+              }}
+            >
+              <option value="none">{t("physics.none")}</option>
+              <option value="static">{t("physics.static")}</option>
+              <option value="dynamic">{t("physics.dynamic")}</option>
+            </select>
+          </label>
+
+          {#if selected.physics}
+            <div class="row">
+              <span class="lbl">{t("physics.bounce")}</span>
+              <NumberField
+                value={selected.physics.bounce}
+                step={0.05}
+                min={0}
+                max={1}
+                precision={2}
+                disabled={!editing}
+                onInput={(v) => store.patchPhysics(selected.id, { bounce: v })}
+                onCommit={commitSoon}
+              />
+            </div>
+            <div class="row">
+              <span class="lbl">{t("physics.gravityScale")}</span>
+              <NumberField
+                value={selected.physics.gravityScale}
+                step={0.1}
+                min={-2}
+                max={3}
+                precision={2}
+                disabled={!editing}
+                onInput={(v) => store.patchPhysics(selected.id, { gravityScale: v })}
+                onCommit={commitSoon}
+              />
+            </div>
+            <div class="row">
+              <span class="lbl">{t("physics.velocity")}</span>
+              <Vector3Field
+                value={selected.physics.velocity}
+                step={0.1}
+                disabled={!editing}
+                onInput={(v) => store.patchPhysics(selected.id, { velocity: v })}
+                onCommit={commitSoon}
+              />
+            </div>
+          {/if}
+        </section>
+      {/if}
+
+      <!-- ── Script ──────────────────────────────────────────────── -->
+      <section class="isection">
+        <h3>{t("inspector.script")}</h3>
+        <textarea
+          class="script-editor"
+          rows={10}
+          spellcheck="false"
+          placeholder={t("script.placeholder")}
+          disabled={!editing}
+          oninput={(e) => store.setScript(selected.id, e.currentTarget.value)}
+         >{selected.script ?? ""}</textarea
+        >
+        <div class="script-actions">
+          <button
+            class="mini-btn"
+            disabled={!editing}
+            onclick={() => store.setScript(selected.id, SCRIPT_EXAMPLE)}
+          >
+            {t("script.example")}
+          </button>
+        </div>
+        <p class="script-hint">{t("script.hint")}</p>
       </section>
     {:else}
       <!-- ── Environment (no selection) ──────────────────────────── -->

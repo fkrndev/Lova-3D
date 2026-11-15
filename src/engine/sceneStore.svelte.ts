@@ -34,6 +34,10 @@ import type {
 const HISTORY_LIMIT = 64;
 const COMMIT_DEBOUNCE_MS = 500;
 const LOG_LIMIT = 200;
+const AUTOSAVE_KEY = "lova.autosave";
+const AUTOSAVE_DEBOUNCE_MS = 2000;
+
+const round4 = (v: number) => Number(v.toFixed(4));
 
 export class SceneStore {
   scene = $state<SceneData>(createDefaultScene());
@@ -42,14 +46,18 @@ export class SceneStore {
   playState = $state<PlayState>("edit");
   logs = $state<LogEntry[]>([]);
   dirty = $state(false);
+  /** True when the session started from a recovered autosave. */
+  recovered = $state(false);
   currentPath = $state<string | null>(null);
   fps = $state(0);
 
   private history = $state<{ snaps: string[]; index: number }>({ snaps: [], index: -1 });
   private logSeq = 0;
   private commitTimer: ReturnType<typeof setTimeout> | null = null;
+  private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
+    this.recoverAutosave();
     this.pushSnapshot();
   }
 
@@ -70,6 +78,69 @@ export class SceneStore {
 
   getObject(id: string): GameObject | undefined {
     return this.scene.objects.find((o) => o.id === id);
+  }
+
+  childrenOf(id: string | null): GameObject[] {
+    return this.scene.objects.filter((o) => o.parentId === id);
+  }
+
+  /** All descendant ids of `id` (not including itself). */
+  descendantsOf(id: string): Set<string> {
+    const out = new Set<string>();
+    const walk = (pid: string) => {
+      for (const o of this.scene.objects) {
+        if (o.parentId === pid && !out.has(o.id)) {
+          out.add(o.id);
+          walk(o.id);
+        }
+      }
+    };
+    walk(id);
+    return out;
+  }
+
+  /**
+   * The object's OWN world translation & accumulated scale
+   * (rotation ignored — v1 chain math, exact for unrotated ancestors):
+   * `world = parentWorld + parentWorldScale × local`.
+   */
+  worldTransformOf(obj: GameObject): { position: { x: number; y: number; z: number }; scale: { x: number; y: number; z: number } } {
+    const chain: GameObject[] = [];
+    const guard = new Set<string>([obj.id]);
+    let pid = obj.parentId;
+    while (pid) {
+      const p = this.getObject(pid);
+      if (!p || guard.has(p.id)) break;
+      guard.add(p.id);
+      chain.push(p);
+      pid = p.parentId;
+    }
+    // chain is child→parent; accumulate from the topmost ancestor downwards,
+    // then apply the object's own local transform.
+    let px = 0,
+      py = 0,
+      pz = 0,
+      sx = 1,
+      sy = 1,
+      sz = 1;
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const t = chain[i].transform;
+      px += sx * t.position.x;
+      py += sy * t.position.y;
+      pz += sz * t.position.z;
+      sx *= t.scale.x;
+      sy *= t.scale.y;
+      sz *= t.scale.z;
+    }
+    const t = obj.transform;
+    return {
+      position: { x: px + sx * t.position.x, y: py + sy * t.position.y, z: pz + sz * t.position.z },
+      scale: { x: sx * t.scale.x, y: sy * t.scale.y, z: sz * t.scale.z },
+    };
+  }
+
+  worldPositionOf(obj: GameObject): { x: number; y: number; z: number } {
+    return this.worldTransformOf(obj).position;
   }
 
   // ───────────────────────────── selection ─────────────────────────────
@@ -119,6 +190,7 @@ export class SceneStore {
     }
     this.pushSnapshot();
     this.dirty = true;
+    this.scheduleAutosave();
   }
 
   /** Debounced commit — for continuous edits (number fields, sliders, colors). */
@@ -175,7 +247,12 @@ export class SceneStore {
 
   removeSelected(): void {
     if (this.playState !== "edit" || this.selectedIds.length === 0) return;
-    const doomed = new Set(this.selectedIds);
+    // Delete whole subtrees.
+    const doomed = new Set<string>();
+    for (const id of this.selectedIds) {
+      doomed.add(id);
+      for (const d of this.descendantsOf(id)) doomed.add(d);
+    }
     const count = doomed.size;
     this.scene.objects = this.scene.objects.filter((o) => !doomed.has(o.id));
     this.selectedIds = [];
@@ -185,26 +262,102 @@ export class SceneStore {
 
   duplicateSelected(): void {
     if (this.playState !== "edit" || this.selectedIds.length === 0) return;
+    // Only duplicate top-most selected objects (skip ones whose ancestor is selected).
+    const selected = new Set(this.selectedIds);
+    const roots = this.selectedIds.filter((id) => {
+      let pid = this.getObject(id)?.parentId ?? null;
+      while (pid) {
+        if (selected.has(pid)) return false;
+        pid = this.getObject(pid)?.parentId ?? null;
+      }
+      return true;
+    });
+
     const clones: GameObject[] = [];
-    for (const id of this.selectedIds) {
-      const src = this.getObject(id);
-      if (!src) continue;
-      const clone: GameObject = JSON.parse(JSON.stringify(src));
-      clone.id = uid();
-      clone.name = `${src.name} Copy`;
-      clone.behaviors = clone.behaviors.map((b) => ({ ...b, id: uid() }));
-      // Nudge copies sideways so they are immediately visible.
-      clone.transform = {
-        ...clone.transform,
-        position: { ...clone.transform.position, x: clone.transform.position.x + 0.75 },
-      };
-      clones.push(clone);
+    const newRootIds: string[] = [];
+    let count = 0;
+    for (const rootId of roots) {
+      const subtreeIds = new Set<string>([rootId, ...this.descendantsOf(rootId)]);
+      const idMap = new Map<string, string>();
+      for (const oldId of subtreeIds) idMap.set(oldId, uid());
+      for (const oldId of subtreeIds) {
+        const src = this.getObject(oldId);
+        if (!src) continue;
+        const clone: GameObject = JSON.parse(JSON.stringify(src));
+        clone.id = idMap.get(oldId)!;
+        clone.behaviors = clone.behaviors.map((b) => ({ ...b, id: uid() }));
+        // Reparent inside the subtree; parents outside keep pointing at the original.
+        clone.parentId = src.parentId && subtreeIds.has(src.parentId) ? idMap.get(src.parentId)! : src.parentId;
+        // Nudge top-level clones sideways so they are immediately visible.
+        if (oldId === rootId) {
+          clone.name = `${src.name} Copy`;
+          clone.transform = {
+            ...clone.transform,
+            position: { ...clone.transform.position, x: clone.transform.position.x + 0.75 },
+          };
+          newRootIds.push(clone.id);
+        }
+        clones.push(clone);
+        count += 1;
+      }
     }
     if (clones.length === 0) return;
     this.scene.objects.push(...clones);
     this.commit();
-    this.setSelection(clones.map((c) => c.id));
-    this.log("info", t("log.duplicate", { count: clones.length }));
+    this.setSelection(newRootIds);
+    this.log("info", t("log.duplicate", { count }));
+  }
+
+  /**
+   * Re-parent an object, keeping its world position (translation-compensated,
+   * exact for unrotated parents) and preventing cycles.
+   */
+  reparent(id: string, parentId: string | null): void {
+    if (this.playState !== "edit") return;
+    const obj = this.getObject(id);
+    if (!obj) return;
+    if (parentId === obj.parentId) return;
+    if (parentId === id) return;
+    if (parentId) {
+      const parent = this.getObject(parentId);
+      if (!parent) return;
+      // Would create a cycle if the new parent is a descendant of the object.
+      if (this.descendantsOf(id).has(parentId)) return;
+    }
+
+    const world = this.worldPositionOf(obj);
+    if (parentId) {
+      const pw = this.worldTransformOf(this.getObject(parentId)!);
+      obj.parentId = parentId;
+      obj.transform = {
+        ...obj.transform,
+        position: {
+          x: round4((world.x - pw.position.x) / (pw.scale.x || 1)),
+          y: round4((world.y - pw.position.y) / (pw.scale.y || 1)),
+          z: round4((world.z - pw.position.z) / (pw.scale.z || 1)),
+        },
+      };
+    } else {
+      obj.parentId = null;
+      obj.transform = {
+        ...obj.transform,
+        position: { x: round4(world.x), y: round4(world.y), z: round4(world.z) },
+      };
+    }
+
+    // Move the object (and its subtree) after the new parent in array order for readability.
+    const subtree = new Set<string>([id, ...this.descendantsOf(id)]);
+    const ordered = this.scene.objects.filter((o) => !subtree.has(o.id));
+    const moving = this.scene.objects.filter((o) => subtree.has(o.id));
+    let insertAt = ordered.length;
+    if (parentId) {
+      const idx = ordered.findIndex((o) => o.id === parentId);
+      if (idx >= 0) insertAt = idx + 1;
+    }
+    ordered.splice(insertAt, 0, ...moving);
+    this.scene.objects = ordered;
+
+    this.commit();
   }
 
   rename(id: string, name: string): void {
@@ -286,6 +439,43 @@ export class SceneStore {
     this.commitSoon();
   }
 
+  // ─────────────────────────── physics / script ─────────────────────────
+
+  setPhysics(objectId: string, type: "static" | "dynamic"): void {
+    const obj = this.getObject(objectId);
+    if (!obj || this.playState !== "edit") return;
+    obj.physics = {
+      type,
+      bounce: type === "dynamic" ? 0.4 : 0.3,
+      gravityScale: 1,
+      velocity: { x: 0, y: 0, z: 0 },
+    };
+    this.commit();
+  }
+
+  removePhysics(objectId: string): void {
+    const obj = this.getObject(objectId);
+    if (!obj || this.playState !== "edit") return;
+    obj.physics = undefined;
+    this.commit();
+  }
+
+  patchPhysics(objectId: string, patch: Partial<NonNullable<GameObject["physics"]>>): void {
+    const obj = this.getObject(objectId);
+    if (!obj?.physics || this.playState !== "edit") return;
+    Object.assign(obj.physics, patch);
+    this.commitSoon();
+  }
+
+  setScript(objectId: string, source: string): void {
+    const obj = this.getObject(objectId);
+    if (!obj || this.playState !== "edit") return;
+    const trimmed = source.trim() === "" ? undefined : source;
+    if (trimmed === undefined) delete obj.script;
+    else obj.script = source;
+    this.commitSoon();
+  }
+
   // ────────────────────────────── scenes ───────────────────────────────
 
   newScene(): void {
@@ -296,6 +486,7 @@ export class SceneStore {
     this.dirty = false;
     this.history = { snaps: [], index: -1 };
     this.pushSnapshot();
+    this.clearAutosave();
     this.log("info", t("log.sceneNew"));
   }
 
@@ -307,12 +498,14 @@ export class SceneStore {
     this.dirty = false;
     this.history = { snaps: [], index: -1 };
     this.pushSnapshot();
+    this.clearAutosave();
     this.log("success", t("log.sceneLoaded", { name: data.name, count: data.objects.length }));
   }
 
   markSaved(path: string): void {
     this.currentPath = path;
     this.dirty = false;
+    this.clearAutosave();
   }
 
   serialize(): string {
@@ -371,6 +564,49 @@ export class SceneStore {
 
   setFps(fps: number): void {
     this.fps = Math.round(fps);
+  }
+
+  // ─────────────────────── autosave & recovery ──────────────────────────
+
+  private scheduleAutosave(): void {
+    if (this.autosaveTimer !== null) clearTimeout(this.autosaveTimer);
+    this.autosaveTimer = setTimeout(() => {
+      this.autosaveTimer = null;
+      try {
+        localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(this.scene));
+      } catch {
+        /* storage full/unavailable — autosave is best-effort */
+      }
+    }, AUTOSAVE_DEBOUNCE_MS);
+  }
+
+  private clearAutosave(): void {
+    if (this.autosaveTimer !== null) {
+      clearTimeout(this.autosaveTimer);
+      this.autosaveTimer = null;
+    }
+    try {
+      localStorage.removeItem(AUTOSAVE_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** VS Code-like crash recovery: restore the last autosaved edit state. */
+  private recoverAutosave(): void {
+    try {
+      const raw = localStorage.getItem(AUTOSAVE_KEY);
+      if (!raw) return;
+      const scene = JSON.parse(raw) as SceneData;
+      if (!scene || scene.version !== 1 || !Array.isArray(scene.objects) || scene.objects.length === 0) return;
+      this.scene = scene;
+      this.dirty = true;
+      this.recovered = true;
+      // Log after the panel mounts — the constructor runs before mount, so defer.
+      setTimeout(() => this.log("warn", t("log.recovered")), 0);
+    } catch {
+      /* corrupt autosave — start fresh */
+    }
   }
 }
 

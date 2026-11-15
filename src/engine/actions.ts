@@ -2,6 +2,7 @@
  * High-level file actions shared by the toolbar and keyboard shortcuts.
  */
 import { t } from "../i18n/index.svelte";
+import { buildExportHtml } from "../export/playerRuntime";
 import * as io from "./io";
 import { store } from "./sceneStore.svelte";
 
@@ -53,6 +54,24 @@ export async function saveAsSceneAction(): Promise<void> {
     await io.writeSceneFile(path, store.serialize());
     store.markSaved(path);
     store.log("success", io.isTauri ? t("log.sceneSaved", { path }) : t("log.exported"));
+  } catch (e) {
+    store.log("error", t("log.saveFailed", { msg: e instanceof Error ? e.message : String(e) }));
+  }
+}
+
+/** Export the current scene as a single playable HTML file. */
+export async function exportHtmlAction(): Promise<void> {
+  try {
+    const base = store.scene.name
+      .replace(/[^\w\- ]+/g, "")
+      .trim()
+      .replace(/\s+/g, "-");
+    const defaultName = `${base || "game"}.html`;
+    const path = await io.pickSavePath(defaultName, [{ name: "HTML", extensions: ["html"] }]);
+    if (!path) return;
+    const html = buildExportHtml(JSON.parse(store.serialize()) as Parameters<typeof buildExportHtml>[0]);
+    await io.writeSceneFile(path.endsWith(".html") ? path : `${path}.html`, html);
+    store.log("success", t("log.exportedHtml", { path }));
   } catch (e) {
     store.log("error", t("log.saveFailed", { msg: e instanceof Error ? e.message : String(e) }));
   }

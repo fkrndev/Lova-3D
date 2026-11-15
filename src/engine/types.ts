@@ -87,17 +87,38 @@ export interface OrbitBehavior {
 export type Behavior = SpinBehavior | BobBehavior | OrbitBehavior;
 
 /**
+ * Optional rigid-body-ish physics, simulated during Play mode.
+ * Simulation runs in world space; dynamic bodies under rotated parents are
+ * not fully supported in v1 (translation-only compensation on write-back).
+ */
+export interface PhysicsDef {
+  type: "static" | "dynamic";
+  /** Restitution 0..1. */
+  bounce: number;
+  /** Multiplier on gravity (9.8 m/s²); 0 = floating. */
+  gravityScale: number;
+  /** Initial world-space velocity (units/s). */
+  velocity: Vec3;
+}
+
+/**
  * A scene object. Exactly one of `mesh` / `light` is set:
  * mesh objects carry `material`, light objects carry `light`.
+ *
+ * `transform` is LOCAL to `parentId` (root objects: local == world).
  */
 export interface GameObject {
   id: string;
   name: string;
   visible: boolean;
+  parentId: string | null;
   transform: Transform;
   mesh?: MeshDef;
   material?: MaterialDef;
   light?: LightDef;
+  physics?: PhysicsDef;
+  /** JS source, run on Play: `function onStart() {}` / `function onUpdate(dt, t) {}` with `api.*`. */
+  script?: string;
   behaviors: Behavior[];
 }
 

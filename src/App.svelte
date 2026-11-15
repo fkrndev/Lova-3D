@@ -8,11 +8,15 @@
   import ViewportPanel from "./components/ViewportPanel.svelte";
   import { newSceneAction, openSceneAction, saveAsSceneAction, saveSceneAction } from "./engine/actions";
   import { store } from "./engine/sceneStore.svelte";
+  import { isTauri } from "./engine/io";
+  import { t } from "./i18n/index.svelte";
 
   let viewportPanel: ViewportPanel;
 
   onMount(() => {
     const onKeydown = (e: KeyboardEvent) => {
+      // During play mode the keyboard belongs to game scripts.
+      if (store.playState !== "edit") return;
       const target = e.target as HTMLElement | null;
       const typing =
         target !== null &&
@@ -53,7 +57,27 @@
     };
 
     window.addEventListener("keydown", onKeydown);
-    return () => window.removeEventListener("keydown", onKeydown);
+
+    // Native close guard: confirm before losing unsaved work.
+    let unlistenClose: (() => void) | undefined;
+    if (isTauri) {
+      void (async () => {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const { ask } = await import("@tauri-apps/plugin-dialog");
+        const win = getCurrentWindow();
+        unlistenClose = await win.onCloseRequested(async (ev) => {
+          if (!store.dirty) return;
+          ev.preventDefault();
+          const ok = await ask(t("confirm.close"), { title: "Lova 3D" });
+          if (ok) await win.destroy();
+        });
+      })();
+    }
+
+    return () => {
+      window.removeEventListener("keydown", onKeydown);
+      unlistenClose?.();
+    };
   });
 </script>
 
