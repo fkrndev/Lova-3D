@@ -1,23 +1,51 @@
 /* ────────────────────────── LovaEngine editor theme ───────────────────── */
 
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 CSS-first config: the editor palette & fonts live in @theme so
+ * utilities like `bg-bg1`, `text-muted`, `border-border`, `font-mono` exist,
+ * while the legacy `--bg1`-style aliases below keep the hand-written CSS
+ * classes on the exact same tokens.
+ */
+@theme {
+  --color-bg0: #0f1115;
+  --color-bg1: #15181e;
+  --color-bg2: #1b1f27;
+  --color-bg3: #222732;
+  --color-border: #262b35;
+  --color-border-soft: #1f242d;
+  --color-text: #d7dce4;
+  --color-muted: #8b93a3;
+  --color-faint: #5c6472;
+  --color-accent: #ff5c7a;
+  --color-accent2: #7c5cff;
+  --color-ok: #5cd6a0;
+  --color-warn: #ffc75c;
+  --color-err: #ff6b6b;
+
+  --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+}
+
 :root {
-  --bg0: #0f1115;
-  --bg1: #15181e;
-  --bg2: #1b1f27;
-  --bg3: #222732;
-  --border: #262b35;
-  --border-soft: #1f242d;
-  --text: #d7dce4;
-  --muted: #8b93a3;
-  --faint: #5c6472;
-  --accent: #ff5c7a;
+  --bg0: var(--color-bg0);
+  --bg1: var(--color-bg1);
+  --bg2: var(--color-bg2);
+  --bg3: var(--color-bg3);
+  --border: var(--color-border);
+  --border-soft: var(--color-border-soft);
+  --text: var(--color-text);
+  --muted: var(--color-muted);
+  --faint: var(--color-faint);
+  --accent: var(--color-accent);
   --accent-soft: rgba(255, 92, 122, 0.16);
-  --accent2: #7c5cff;
-  --ok: #5cd6a0;
-  --warn: #ffc75c;
-  --err: #ff6b6b;
-  --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-  --sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --accent2: var(--color-accent2);
+  --ok: var(--color-ok);
+  --warn: var(--color-warn);
+  --err: var(--color-err);
+  --mono: var(--font-mono);
+  --sans: var(--font-sans);
 }
 
 * {
@@ -746,57 +774,4 @@ select {
 .console-text {
   white-space: pre-wrap;
   word-break: break-all;
-}
-
-/* ──────────────────────────── statusbar ───────────────────────────────── */
-
-.statusbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 4px 12px;
-  background: var(--bg1);
-  border-top: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 11.5px;
-}
-
-.sb-group {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-}
-
-.sb-group .sep {
-  color: var(--faint);
-}
-
-.play-state {
-  font-weight: 600;
-}
-
-.play-state.editing { color: var(--muted); }
-.play-state.playing { color: var(--ok); }
-.play-state.paused { color: var(--warn); }
-
-.dirty-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-.dirty {
-  color: var(--accent);
-}
-
-.path {
-  max-width: 380px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  direction: rtl;
-  text-align: left;
 }

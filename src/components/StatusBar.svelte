@@ -10,26 +10,32 @@
     playing: "status.playing",
     paused: "status.paused",
   };
+
+  const playColor: Record<PlayState, string> = {
+    edit: "text-muted",
+    playing: "text-ok",
+    paused: "text-warn",
+  };
 </script>
 
-<div class="statusbar">
-  <div class="sb-group">
+<div class="flex h-7 items-center justify-between gap-4 border-t border-border bg-bg1 px-3 text-[11.5px] text-muted">
+  <div class="flex min-w-0 items-center gap-2">
     <span>{store.scene.objects.length} {t("status.objects")}</span>
-    <span class="sep">·</span>
+    <span class="text-faint">·</span>
     <span>{store.selectedIds.length} {t("status.selected")}</span>
-    <span class="sep">·</span>
-    <span class="play-state {store.playState}">{t(playLabel[store.playState])}</span>
+    <span class="text-faint">·</span>
+    <span class="font-semibold {playColor[store.playState]}">{t(playLabel[store.playState])}</span>
   </div>
 
-  <div class="sb-group">
+  <div class="flex min-w-0 items-center gap-2">
     {#if store.dirty}
-      <span class="dirty-dot" title={t("status.unsaved")}></span>
-      <span class="dirty">{t("status.unsaved")}</span>
-      <span class="sep">·</span>
+      <span class="size-[7px] shrink-0 rounded-full bg-accent" title={t("status.unsaved")}></span>
+      <span class="text-accent">{t("status.unsaved")}</span>
+      <span class="text-faint">·</span>
     {/if}
     {#if store.currentPath}
-      <span class="path" title={store.currentPath}>{store.currentPath}</span>
-      <span class="sep">·</span>
+      <span class="max-w-[380px] truncate font-mono" title={store.currentPath}>{store.currentPath}</span>
+      <span class="text-faint">·</span>
     {/if}
     <span>WebGL2 · Babylon.js {Engine.Version}</span>
   </div>

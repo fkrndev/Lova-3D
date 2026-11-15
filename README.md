@@ -1,12 +1,13 @@
 # LovaEngine ❤
 
 **LovaEngine** is a 3D scene editor / mini game engine for the desktop, built with
-[Tauri 2](https://tauri.app) + [Svelte 5](https://svelte.dev) + [Babylon.js 8](https://www.babylonjs.com).
+[Tauri 2](https://tauri.app) + [Svelte 5](https://svelte.dev) + [Babylon.js 8](https://www.babylonjs.com)
++ [Tailwind CSS 4](https://tailwindcss.com).
 
 Edit a scene with gizmos, give objects gameplay behaviors, hit **Play** to see it
 come alive, then save the whole thing as a portable JSON file.
 
-![stack](https://img.shields.io/badge/Tauri-2-blue) ![stack](https://img.shields.io/badge/Svelte-5-ff3e00) ![stack](https://img.shields.io/badge/Babylon.js-8.x-bb4648)
+![stack](https://img.shields.io/badge/Tauri-2-blue) ![stack](https://img.shields.io/badge/Svelte-5-ff3e00) ![stack](https://img.shields.io/badge/Babylon.js-8.x-bb4648) ![stack](https://img.shields.io/badge/Tailwind-4.x-38bdf8)
 
 ## Features
 
@@ -109,6 +110,16 @@ The **store is the single source of truth**: UI panels bind to it, the viewport
 bridge diffs it into Babylon nodes every change, and user interactions (picking,
 gizmo drags) write back into it. Undo/redo and Play/Stop are JSON snapshots of
 the store, which keeps the whole system simple and predictable.
+
+## Styling
+
+[Tailwind CSS 4](https://tailwindcss.com) is wired through the official
+`@tailwindcss/vite` plugin (CSS-first — no `tailwind.config.js`). The editor
+palette lives in a single `@theme` block in `src/app.css`, which both generates
+utilities (`bg-bg1`, `text-accent`, `border-border`, `font-mono`, …) and feeds
+the legacy `--bg1`-style aliases used by the hand-written component CSS — one
+source of truth for both systems. New components should prefer Tailwind
+utilities (see `src/components/StatusBar.svelte` for the pattern).
 
 ## Regenerating the app icon
 
