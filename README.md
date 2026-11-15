@@ -146,6 +146,24 @@ the legacy `--bg1`-style aliases used by the hand-written component CSS — one
 source of truth for both systems. New components should prefer Tailwind
 utilities (see `src/components/StatusBar.svelte` for the pattern).
 
+## Testing
+
+The engine's logic (store, hierarchy math, physics, scripting api, behaviors,
+persistence, i18n, HTML export) is covered by a deterministic [Vitest](https://vitest.dev)
+suite — no GPU needed, physics driven by manual ticks:
+
+```bash
+npm test          # run the whole suite (~4s)
+npm run test:watch
+```
+
+Highlights: exact reparent compensation under scaled parents, ball-drop settle
+and bounce trajectories, AABB platform landing, moving-platform carry,
+push-regression (separating-velocity guard), jump-with-grounded, undo/redo
+snapshot counts, autosave & crash recovery, EN/ID dictionary parity, and
+`</script>` escaping in the HTML exporter. CI runs the suite plus
+`svelte-check`, `vite build` and `cargo check` on every push.
+
 ## Regenerating the app icon
 
 ```bash
