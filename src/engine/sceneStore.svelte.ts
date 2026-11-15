@@ -569,6 +569,7 @@ export class SceneStore {
   pause(): void {
     if (this.playState !== "playing") return;
     this.playState = "paused";
+    runtime.notifyPaused();
     this.log("info", t("log.playPaused"));
   }
 

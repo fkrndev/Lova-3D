@@ -5,8 +5,16 @@ use crate::error::LovaError;
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
-use tauri::State;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter, State};
+
+/// Shared simulation state (thread-safe across the loop threads).
+pub type SharedPhysics = Arc<Mutex<PhysicsState>>;
+
+/// Event channel streaming simulation states to the frontend.
+pub const PHYSICS_EVENT: &str = "lova://physics-states";
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "kind")]
@@ -58,6 +66,8 @@ struct PhysicsWorld {
     ccd: CCDSolver,
     /// Our object id → rigid-body handle (dynamic bodies only are reported).
     handles: HashMap<String, RigidBodyHandle>,
+    /// States returned by the most recent step (for determinism tests).
+    last_states: Vec<BodyState>,
 }
 
 impl PhysicsWorld {
@@ -75,6 +85,7 @@ impl PhysicsWorld {
             multibody_joints: MultibodyJointSet::new(),
             ccd: CCDSolver::new(),
             handles: HashMap::new(),
+            last_states: Vec::new(),
         };
         for desc in bodies_in {
             world.add_body(desc);
@@ -119,6 +130,16 @@ impl PhysicsWorld {
     }
 
     fn step(&mut self, dt: f32) -> Vec<BodyState> {
+        let states = self.step_inner(dt);
+        self.last_states = states.clone();
+        states
+    }
+
+    fn last_states(&self) -> Vec<BodyState> {
+        self.last_states.clone()
+    }
+
+    fn step_inner(&mut self, dt: f32) -> Vec<BodyState> {
         self.integration.dt = dt.clamp(1.0 / 240.0, 0.1);
         self.pipeline.step(
             &self.gravity,
@@ -176,14 +197,25 @@ impl PhysicsWorld {
     }
 }
 
+/// Loop-thread control flags per running world.
+#[derive(Clone)]
+struct LoopFlags {
+    /// true → the thread keeps existing (false exits it; used by destroy).
+    stop: Arc<AtomicBool>,
+    /// true → the loop idles without stepping (editor pause).
+    paused: Arc<AtomicBool>,
+}
+
 #[derive(Default)]
 pub struct PhysicsState {
     worlds: HashMap<u64, PhysicsWorld>,
     next_id: u64,
+    /// Control flags for the simulation loop threads.
+    running: HashMap<u64, LoopFlags>,
 }
 
 fn with_world<T>(
-    state: &State<'_, Mutex<PhysicsState>>,
+    state: &SharedPhysics,
     world_id: u64,
     f: impl FnOnce(&mut PhysicsWorld) -> T,
 ) -> Result<T, LovaError> {
@@ -196,7 +228,7 @@ fn with_world<T>(
 }
 
 #[tauri::command]
-pub fn physics_world_create(state: State<'_, Mutex<PhysicsState>>, bodies: Vec<BodyDesc>) -> Result<u64, LovaError> {
+pub fn physics_world_create(state: State<'_, SharedPhysics>, bodies: Vec<BodyDesc>) -> Result<u64, LovaError> {
     let mut guard = state.lock().map_err(|_| LovaError::io("physics state poisoned"))?;
     guard.next_id += 1;
     let id = guard.next_id;
@@ -205,13 +237,13 @@ pub fn physics_world_create(state: State<'_, Mutex<PhysicsState>>, bodies: Vec<B
 }
 
 #[tauri::command]
-pub fn physics_step(state: State<'_, Mutex<PhysicsState>>, world: u64, dt: f32) -> Result<Vec<BodyState>, LovaError> {
+pub fn physics_step(state: State<'_, SharedPhysics>, world: u64, dt: f32) -> Result<Vec<BodyState>, LovaError> {
     with_world(&state, world, |w| w.step(dt))
 }
 
 #[tauri::command]
 pub fn physics_set_velocity(
-    state: State<'_, Mutex<PhysicsState>>,
+    state: State<'_, SharedPhysics>,
     world: u64,
     id: String,
     linvel: [f32; 3],
@@ -227,7 +259,7 @@ pub fn physics_set_velocity(
 
 #[tauri::command]
 pub fn physics_teleport(
-    state: State<'_, Mutex<PhysicsState>>,
+    state: State<'_, SharedPhysics>,
     world: u64,
     id: String,
     translation: [f32; 3],
@@ -241,12 +273,83 @@ pub fn physics_teleport(
     })
 }
 
+#[derive(Serialize, Clone)]
+struct PhysicsEvent {
+    world: u64,
+    states: Vec<BodyState>,
+}
+
+/// Runs the simulation loop inside Rust on its own thread at a fixed
+/// timestep, streaming states back via `lova://physics-states`. The frontend
+/// becomes a pure view — no per-frame IPC round-trips.
 #[tauri::command]
-pub fn physics_world_destroy(state: State<'_, Mutex<PhysicsState>>, world: u64) -> bool {
+pub fn physics_run(app: AppHandle, state: State<'_, SharedPhysics>, world: u64, hz: f32) -> Result<(), LovaError> {
+    let flags = {
+        let mut guard = state.lock().map_err(|_| LovaError::io("physics state poisoned"))?;
+        guard.worlds.get(&world).ok_or_else(|| LovaError::io(format!("unknown physics world {world}")))?;
+        let flags = LoopFlags {
+            stop: Arc::new(AtomicBool::new(false)),
+            paused: Arc::new(AtomicBool::new(false)),
+        };
+        guard.running.insert(world, flags.clone());
+        flags
+    };
+    let hz = hz.clamp(10.0, 240.0);
+    let dt = 1.0 / hz;
+    let state_ref: SharedPhysics = Arc::clone(state.inner());
+
+    std::thread::spawn(move || {
+        let mut next_tick = Instant::now();
+        loop {
+            if flags.stop.load(Ordering::Relaxed) {
+                break;
+            }
+            if !flags.paused.load(Ordering::Relaxed) {
+                let tick_result = with_world(&state_ref, world, |w| w.step(dt));
+                match tick_result {
+                    Ok(states) => {
+                        let _ = app.emit(PHYSICS_EVENT, PhysicsEvent { world, states });
+                    }
+                    Err(_) => break, // world destroyed
+                }
+            }
+            // Fixed-timestep pacing: sleep until the next tick, catch up if late.
+            next_tick += Duration::from_secs_f32(dt);
+            let now = Instant::now();
+            if next_tick > now {
+                std::thread::sleep(next_tick - now);
+            } else {
+                next_tick = now; // fell behind — don't burst
+            }
+        }
+    });
+    Ok(())
+}
+
+/// Pause/resume a running simulation loop (used by editor pause). The loop
+/// thread keeps pacing but skips stepping while paused.
+#[tauri::command]
+pub fn physics_set_running(state: State<'_, SharedPhysics>, world: u64, running: bool) -> Result<(), LovaError> {
+    let guard = state.lock().map_err(|_| LovaError::io("physics state poisoned"))?;
+    match guard.running.get(&world) {
+        Some(flags) => {
+            flags.paused.store(!running, Ordering::Relaxed);
+            Ok(())
+        }
+        None => Err(LovaError::io(format!("physics world {world} is not running"))),
+    }
+}
+
+#[tauri::command]
+pub fn physics_world_destroy(state: State<'_, SharedPhysics>, world: u64) -> bool {
     let mut guard = match state.lock() {
         Ok(g) => g,
         Err(_) => return false,
     };
+    // Signal the loop thread (if any) to stop before dropping the world.
+    if let Some(flags) = guard.running.remove(&world) {
+        flags.stop.store(true, Ordering::Relaxed);
+    }
     guard.worlds.remove(&world).is_some()
 }
 
@@ -371,5 +474,34 @@ mod tests {
         let states = step_n(&mut w, 180);
         let y = state_of(&states, "b").translation[1];
         assert!((y - 1.5).abs() < 0.05, "ball did not land on the platform: y = {y}");
+    }
+
+    #[test]
+    fn fixed_timestep_steps_are_deterministic() {
+        let mut a = PhysicsWorld::new(vec![ground(), ball_at(5.0, 0.6, "b")]);
+        let mut b = PhysicsWorld::new(vec![ground(), ball_at(5.0, 0.6, "b")]);
+        for _ in 0..90 {
+            a.step(1.0 / 60.0);
+            b.step(1.0 / 60.0);
+            let (la, lb) = (a.last_states(), b.last_states());
+            let (sa, sb) = (state_of(&la, "b"), state_of(&lb, "b"));
+            assert_eq!(sa.translation, sb.translation, "trajectories diverged");
+            assert_eq!(sa.linvel, sb.linvel);
+        }
+    }
+
+    #[test]
+    fn loop_flags_control_stop_and_pause_independently() {
+        let flags = LoopFlags {
+            stop: Arc::new(AtomicBool::new(false)),
+            paused: Arc::new(AtomicBool::new(false)),
+        };
+        // Pause does not stop…
+        flags.paused.store(true, Ordering::Relaxed);
+        assert!(!flags.stop.load(Ordering::Relaxed));
+        // …and stop is final.
+        flags.stop.store(true, Ordering::Relaxed);
+        assert!(flags.stop.load(Ordering::Relaxed));
+        assert!(flags.paused.load(Ordering::Relaxed)); // pause state irrelevant after stop
     }
 }

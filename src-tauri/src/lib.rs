@@ -28,7 +28,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .register_uri_scheme_protocol("lovaasset", |_ctx, request| asset_protocol::handle(request))
-        .manage(physics::PhysicsState::default())
+        .manage(std::sync::Arc::new(std::sync::Mutex::new(physics::PhysicsState::default())))
         .invoke_handler(tauri::generate_handler![
             save_scene,
             load_scene,
@@ -44,6 +44,8 @@ pub fn run() {
             physics::physics_step,
             physics::physics_set_velocity,
             physics::physics_teleport,
+            physics::physics_run,
+            physics::physics_set_running,
             physics::physics_world_destroy
         ])
         .run(tauri::generate_context!())

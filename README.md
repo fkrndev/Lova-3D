@@ -27,12 +27,14 @@ come alive, then save the whole thing as a portable JSON file.
 - **Gizmos** — move / rotate / scale (W / E / R), one history entry per drag
 - **Hierarchy panel** — parent/child tree with drag-drop reparenting (world
   position preserved), expand/collapse, search, rename, visibility, delete
-- **Physics (v0.4)** — the same engine everywhere: the desktop app simulates
-  with **native Rapier (Rust)** and exported HTML games load **Rapier WASM**
-  (CDN) — real shapes (half-space grounds, cuboids, balls, cylinders,
-  capsules), CCD, grounded detection, scripted velocities and teleports. A
-  deterministic TS arcade simulation remains as the automatic offline
-  fallback (`window.__lovaPhys` in exports tells you which backend is live)
+- **Physics (v0.6)** — the same engine everywhere: the desktop app simulates
+  with **native Rapier (Rust)** driven by a **fixed-timestep simulation loop
+  running on its own Rust thread** — states stream back to the editor over
+  events (no per-frame IPC), pause parks the loop without killing it, and a
+  watchdog falls back to per-frame stepping if the event channel breaks.
+  Exported HTML games load **Rapier WASM** (CDN); a deterministic TS arcade
+  simulation remains as the automatic offline fallback
+  (`window.__lovaPhys` in exports tells you which backend is live)
 - **Scripting (v0.2)** — per-object JavaScript with `onStart()` / `onUpdate(dt, t)`
   hooks and an `api`: `position/rotation/scale`, `velocity` (write to jump),
   `grounded`, `find(name)`, `key(code)`, `log()`, `hud(text)` and a
@@ -172,6 +174,13 @@ utilities (see `src/components/StatusBar.svelte` for the pattern).
   revalidation, CORS for the webview origin, and hard guards (only folders with
   a `project.json` are served; path traversal refused). The frontend falls back
   to IPC base64 outside the webview.
+- **Rust-driven simulation loop** — `physics_run` steps the Rapier world on a
+  dedicated Rust thread at a fixed timestep (10–240 Hz, clamped) and streams
+  body states to the webview via the `lova://physics-states` event; the editor
+  is a pure view. `physics_set_running` parks the loop for editor pause without
+  killing the thread (stop/destroy are separate flags); half-initialised
+  worlds are torn down cleanly, and a frontend watchdog degrades to per-frame
+  `physics_step` if events never arrive.
 - **Strict production CSP** (`devCsp` stays null for Vite HMR): scripts/styles
   self-only, custom protocol + `ipc:` allow-listed, `object-src 'none'`. The
   production build is smoke-tested to render the full editor under it.

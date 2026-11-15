@@ -4,6 +4,7 @@
  * plain `vite dev`.
  */
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open as dialogOpen, save as dialogSave } from "@tauri-apps/plugin-dialog";
 import type { AssetInfo, AssetKind, PhysicsBodyDesc, PhysicsBodyState, ProjectInfo, SceneData } from "./types";
 
@@ -32,6 +33,27 @@ export async function physicsTeleport(world: number, id: string, translation: [n
 
 export async function physicsWorldDestroy(world: number): Promise<void> {
   await invoke("physics_world_destroy", { world });
+}
+
+/** Start the Rust-driven simulation loop (fixed timestep, event streaming). */
+export async function physicsRun(world: number, hz = 60): Promise<void> {
+  await invoke("physics_run", { world, hz });
+}
+
+/** Pause/resume the Rust loop without killing its thread. */
+export async function physicsSetRunning(world: number, running: boolean): Promise<void> {
+  await invoke("physics_set_running", { world, running });
+}
+
+export interface PhysicsStreamEvent {
+  world: number;
+  states: PhysicsBodyState[];
+}
+
+/** Subscribe to streamed simulation states; resolves an unlisten fn. */
+export async function onPhysicsStates(cb: (event: PhysicsStreamEvent) => void): Promise<() => void> {
+  const unlisten = await listen<PhysicsStreamEvent>("lova://physics-states", (e) => cb(e.payload));
+  return unlisten;
 }
 
 // ── project system (Tauri-only) ───────────────────────────────────────────

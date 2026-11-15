@@ -108,9 +108,23 @@ export class Runtime {
   /** Native decision made (io loaded, isTauri known)? */
   private nativeDecided = false;
   private useNative = false;
+  /** Event-stream health (watchdog) + pause sync for the Rust loop. */
+  private eventsHealthy = false;
+  private eventsArmedAt = 0;
+  private unlistenPhysics: (() => void) | null = null;
+  /** True while the Rust loop is paused (resume once when playing again). */
+  private rustPaused = false;
 
   get isActive(): boolean {
     return this.active;
+  }
+
+  /** Editor pause → park the Rust loop (thread stays alive, no stepping). */
+  notifyPaused(): void {
+    if (this.physWorld === null || this.rustPaused) return;
+    this.rustPaused = true;
+    const world = this.physWorld;
+    void loadIo().then((io) => io.physicsSetRunning(world, false).catch(() => undefined));
   }
 
   /** Called by the viewport panel so api.camera can drive the play camera. */
@@ -172,12 +186,47 @@ export class Runtime {
           return;
         }
         this.physWorld = world;
+        // Event-driven streaming: the Rust loop steps at a fixed timestep on
+        // its own thread and pushes states to us — no per-frame IPC.
+        this.eventsArmedAt = performance.now();
+        this.eventsHealthy = false;
+        this.unlistenPhysics = await io.onPhysicsStates((event) => {
+          if (!this.active || event.world !== this.physWorld) return;
+          this.eventsHealthy = true;
+          this.detectTeleports(io);
+          this.applyRapierStates(event.states, this.store!);
+        });
+        await io.physicsRun(world, 60);
       })
       .catch((e) => {
         this.rapierGaveUp = true;
         this.useNative = false;
+        if (this.physWorld !== null) {
+          // Half-initialised (e.g. the event channel failed) — tear down cleanly
+          // so the TS simulation can take over.
+          const world = this.physWorld;
+          this.physWorld = null;
+          this.unlistenPhysics?.();
+          this.unlistenPhysics = null;
+          void loadIo().then((m) => m.physicsWorldDestroy(world).catch(() => undefined));
+        }
         this.store?.log("warn", `native physics unavailable (${String(e)}) — using the TS simulation`);
       });
+  }
+
+  /** Compare store positions with the last streamed state → teleports. */
+  private detectTeleports(io: IoModule): void {
+    const world = this.physWorld;
+    const store = this.store;
+    if (world === null || !store) return;
+    for (const [id, last] of this.lastRapierPos) {
+      const o = store.getObject(id);
+      if (!o) continue;
+      const w = store.worldPositionOf(o);
+      if (Math.hypot(w.x - last.x, w.y - last.y, w.z - last.z) > TELEPORT_THRESHOLD) {
+        void io.physicsTeleport(world, id, [w.x, w.y, w.z]);
+      }
+    }
   }
 
   private buildBodyDescs(scene: SceneData): PhysicsBodyDesc[] {
@@ -263,10 +312,21 @@ export class Runtime {
     this.time += Math.min(dt, 0.1); // clamp huge hiccups (tab switches etc.)
     const t = this.time;
 
+    // Resume the Rust loop once after an editor pause.
+    if (this.physWorld !== null && this.rustPaused) {
+      this.rustPaused = false;
+      const world = this.physWorld;
+      void loadIo().then((io) => io.physicsSetRunning(world, true).catch(() => undefined));
+    }
+
     this.applyBehaviors(t);
     if (this.physWorld !== null) {
-      // Native Rapier path (desktop): async ordered steps, no TS simulation.
-      this.enqueueRapierStep(dt);
+      // Native path: the Rust loop streams states via events. Watchdog — if
+      // no event arrived shortly after arming, fall back to per-frame steps
+      // so the editor never freezes on a broken event channel.
+      if (!this.eventsHealthy && performance.now() - this.eventsArmedAt > 700) {
+        this.enqueueRapierStep(dt);
+      }
     } else if (this.nativeDecided && !this.useNative) {
       this.applyPhysics(dt);
     }
@@ -345,6 +405,8 @@ export class Runtime {
     if (this.physWorld !== null) {
       const world = this.physWorld;
       this.physWorld = null;
+      this.unlistenPhysics?.();
+      this.unlistenPhysics = null;
       void loadIo().then((io) => io.physicsWorldDestroy(world).catch(() => undefined));
     }
     this.lastRapierPos.clear();
@@ -352,6 +414,8 @@ export class Runtime {
     this.nativeDecided = false;
     this.useNative = false;
     this.physChain = Promise.resolve();
+    this.eventsHealthy = false;
+    this.rustPaused = false;
     // Restore the exact edit-time state captured on start.
     store.restoreSceneJson(this.snapshotJson);
   }
