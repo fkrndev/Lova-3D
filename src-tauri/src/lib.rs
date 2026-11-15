@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-/// Writes a serialized LovaEngine scene to disk.
+/// Writes a serialized Lova 3D scene to disk.
 /// The path always comes from a native save dialog on the frontend,
 /// so no extra filesystem scope is needed here.
 #[tauri::command]
@@ -21,5 +21,5 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![save_scene, load_scene])
         .run(tauri::generate_context!())
-        .expect("error while running LovaEngine");
+        .expect("error while running Lova 3D");
 }

@@ -1,6 +1,6 @@
 /**
- * Generates `app-icon.png` (1024×1024) for LovaEngine without any image
- * dependencies: a rounded-square dark gradient with the LovaEngine heart,
+ * Generates `app-icon.png` (1024×1024) for Lova 3D without any image
+ * dependencies: a rounded-square dark gradient with the Lova 3D heart,
  * rendered with 2× supersampling and encoded as a raw PNG (zlib + CRC32).
  *
  * Usage: node scripts/make-icon.mjs

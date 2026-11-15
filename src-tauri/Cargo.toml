@@ -1,8 +1,8 @@
 [package]
-name = "lovaengine"
+name = "lova3d"
 version = "0.1.0"
-description = "LovaEngine — a 3D scene editor & game engine built with Tauri, Svelte and Babylon.js"
-authors = ["LovaEngine contributors"]
+description = "Lova 3D — a 3D scene editor & game engine built with Tauri, Svelte and Babylon.js"
+authors = ["Lova 3D contributors"]
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -12,7 +12,7 @@ rust-version = "1.77.2"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name on
 # Windows (`.exe`).
-name = "lovaengine_lib"
+name = "lova3d_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

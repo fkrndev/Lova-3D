@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    lovaengine_lib::run()
+    lova3d_lib::run()
 }

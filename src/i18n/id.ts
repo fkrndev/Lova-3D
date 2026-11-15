@@ -4,7 +4,7 @@
 import type { Dict } from "./en";
 
 const id: Dict = {
-  "app.name": "LovaEngine",
+  "app.name": "Lova 3D",
 
   "toolbar.new": "Baru",
   "toolbar.open": "Buka",

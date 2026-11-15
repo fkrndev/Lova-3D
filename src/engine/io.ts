@@ -10,14 +10,14 @@ import type { SceneData } from "./types";
 export const isTauri: boolean =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-const SCENE_FILTERS = [{ name: "LovaEngine Scene", extensions: ["json"] }];
+const SCENE_FILTERS = [{ name: "Lova 3D Scene", extensions: ["json"] }];
 
 export interface LoadedScene {
   path: string | null;
   data: SceneData;
 }
 
-/** Basic structural validation of a parsed scene file. Throws on invalid input. */
+/** Basic structural validation of a parsed Lova 3D scene file. Throws on invalid input. */
 export function validateScene(text: string): SceneData {
   let parsed: unknown;
   try {

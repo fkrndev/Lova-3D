@@ -1,5 +1,5 @@
 /**
- * LovaEngine — core scene model.
+ * Lova 3D — core scene model.
  *
  * The scene model is the single source of truth for the editor.
  * It is plain serializable JSON (no classes, no engine references) so it can

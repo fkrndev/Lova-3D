@@ -2,7 +2,7 @@
  * English dictionary (default locale).
  */
 const en = {
-  "app.name": "LovaEngine",
+  "app.name": "Lova 3D",
 
   "toolbar.new": "New",
   "toolbar.open": "Open",

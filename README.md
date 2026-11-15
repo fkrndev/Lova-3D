@@ -1,6 +1,6 @@
-# LovaEngine ❤
+# Lova 3D ❤
 
-**LovaEngine** is a 3D scene editor / mini game engine for the desktop, built with
+**Lova 3D** is a 3D scene editor / mini game engine for the desktop, built with
 [Tauri 2](https://tauri.app) + [Svelte 5](https://svelte.dev) + [Babylon.js 8](https://www.babylonjs.com)
 + [Tailwind CSS 4](https://tailwindcss.com).
 

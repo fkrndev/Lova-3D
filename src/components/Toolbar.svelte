@@ -32,7 +32,7 @@
 <div class="toolbar">
   <div class="brand">
     <span class="brand-heart"><Icon name="heart" size={16} /></span>
-    <span class="brand-name">LovaEngine</span>
+    <span class="brand-name">{t("app.name")}</span>
     <span class="brand-version">v0.1</span>
   </div>
 

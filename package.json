@@ -1,8 +1,8 @@
 {
-  "name": "lovaengine",
+  "name": "lova3d",
   "private": true,
   "version": "0.1.0",
-  "description": "LovaEngine — a 3D scene editor & game engine built with Tauri 2, Svelte 5 and Babylon.js",
+  "description": "Lova 3D — a 3D scene editor & game engine built with Tauri 2, Svelte 5 and Babylon.js",
   "type": "module",
   "scripts": {
     "dev": "vite",
