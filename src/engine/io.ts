@@ -65,6 +65,45 @@ export function b64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
+// ── lovaasset:// streaming protocol ───────────────────────────────────────
+
+/**
+ * URL for the custom `lovaasset` protocol that streams project files
+ * straight from disk (no IPC, no base64). WebView2/WebKitGTK serve custom
+ * schemes over `http://<scheme>.localhost`; WKWebView uses `<scheme>://`.
+ */
+export function projectAssetUrl(root: string, rel: string, proto: string = window.location.protocol): string {
+  const base = proto === "tauri:" ? "lovaasset://localhost/" : "http://lovaasset.localhost/";
+  const relEnc = rel.split(/[\\/]/).map(encodeURIComponent).join("/");
+  return `${base}${relEnc}?root=${encodeURIComponent(root)}`;
+}
+
+/** True when the page origin is the Tauri webview (where the protocol lives). */
+function inTauriWebview(): boolean {
+  return window.location.protocol === "tauri:" || window.location.hostname === "tauri.localhost";
+}
+
+/**
+ * Read project asset bytes: streamed via the `lovaasset` protocol when
+ * available, falling back to base64-over-IPC (browser tests, older builds).
+ */
+export async function readAssetBytes(root: string, rel: string): Promise<Uint8Array | null> {
+  if (isTauri && inTauriWebview()) {
+    try {
+      const res = await fetch(projectAssetUrl(root, rel));
+      if (res.ok) return new Uint8Array(await res.arrayBuffer());
+    } catch {
+      /* fall through to the IPC path */
+    }
+  }
+  try {
+    const b64 = await readProjectFileB64(root, rel);
+    return b64ToBytes(b64);
+  } catch {
+    return null;
+  }
+}
+
 export interface LoadedScene {
   path: string | null;
   data: SceneData;

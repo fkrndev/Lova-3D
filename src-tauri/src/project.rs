@@ -1,6 +1,7 @@
 //! Lova 3D project system: folder-based projects with a JSON manifest and a
 //! SQLite index (scenes, assets, metadata) living in `.lova/index.db`.
 use base64::Engine as _;
+use crate::error::LovaError;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -46,8 +47,8 @@ fn db_path(root: &Path) -> PathBuf {
     root.join(".lova").join("index.db")
 }
 
-fn open_db(root: &Path) -> Result<Connection, String> {
-    let conn = Connection::open(db_path(root)).map_err(|e| format!("cannot open index.db: {e}"))?;
+fn open_db(root: &Path) -> Result<Connection, LovaError> {
+    let conn = Connection::open(db_path(root)).map_err(|e| LovaError::db(format!("cannot open index.db: {e}")))?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS scenes(
             name TEXT PRIMARY KEY,
@@ -67,7 +68,7 @@ fn open_db(root: &Path) -> Result<Connection, String> {
             value TEXT NOT NULL
         );",
     )
-    .map_err(|e| format!("cannot initialize schema: {e}"))?;
+    .map_err(|e| LovaError::db(format!("cannot initialize schema: {e}")))?;
     Ok(conn)
 }
 
@@ -79,58 +80,51 @@ fn now_stamp() -> String {
 }
 
 /// Joins `rel` under `root` while refusing path traversal.
-fn safe_join(root: &Path, rel: &str) -> Result<PathBuf, String> {
+fn safe_join(root: &Path, rel: &str) -> Result<PathBuf, LovaError> {
     if rel.split(['/', '\\']).any(|part| part == "..") || rel.starts_with('~') {
-        return Err(format!("illegal project path: `{rel}`"));
+        return Err(LovaError::illegal_path(format!("illegal project path: `{rel}`")));
     }
     Ok(root.join(rel))
 }
 
-fn read_info(root: &Path) -> Result<ProjectInfo, String> {
+fn read_info(root: &Path) -> Result<ProjectInfo, LovaError> {
     let manifest = root.join("project.json");
-    let raw = fs::read_to_string(&manifest).map_err(|e| format!("not a Lova 3D project: {e}"))?;
+    let raw = fs::read_to_string(&manifest)
+        .map_err(|e| LovaError::not_a_project(format!("not a Lova 3D project: {e}")))?;
     let json: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|e| format!("corrupt project.json: {e}"))?;
+        serde_json::from_str(&raw).map_err(|e| LovaError::io(format!("corrupt project.json: {e}")))?;
     let name = json["name"]
         .as_str()
-        .ok_or("corrupt project.json: missing name")?
+        .ok_or_else(|| LovaError::io("corrupt project.json: missing name"))?
         .to_string();
     let conn = open_db(root)?;
     let mut scenes = Vec::new();
     {
-        let mut stmt = conn
-            .prepare("SELECT name, file FROM scenes ORDER BY updated_at DESC")
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok(SceneRef {
-                    name: row.get(0)?,
-                    file: row.get(1)?,
-                })
+        let mut stmt = conn.prepare("SELECT name, file FROM scenes ORDER BY updated_at DESC")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(SceneRef {
+                name: row.get(0)?,
+                file: row.get(1)?,
             })
-            .map_err(|e| e.to_string())?;
+        })?;
         for row in rows {
-            scenes.push(row.map_err(|e| e.to_string())?);
+            scenes.push(row?);
         }
     }
     let mut assets = Vec::new();
     {
-        let mut stmt = conn
-            .prepare("SELECT id, path, kind, bytes, thumb FROM assets ORDER BY imported_at DESC")
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok(AssetInfo {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                    kind: row.get(2)?,
-                    bytes: row.get::<_, i64>(3)? as u64,
-                    thumb: row.get(4)?,
-                })
+        let mut stmt = conn.prepare("SELECT id, path, kind, bytes, thumb FROM assets ORDER BY imported_at DESC")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(AssetInfo {
+                id: row.get(0)?,
+                path: row.get(1)?,
+                kind: row.get(2)?,
+                bytes: row.get::<_, i64>(3)? as u64,
+                thumb: row.get(4)?,
             })
-            .map_err(|e| e.to_string())?;
+        })?;
         for row in rows {
-            assets.push(row.map_err(|e| e.to_string())?);
+            assets.push(row?);
         }
     }
     Ok(ProjectInfo {
@@ -142,11 +136,11 @@ fn read_info(root: &Path) -> Result<ProjectInfo, String> {
 }
 
 #[tauri::command]
-pub fn create_project(root: String, name: String) -> Result<ProjectInfo, String> {
+pub fn create_project(root: String, name: String) -> Result<ProjectInfo, LovaError> {
     let root_path = Path::new(&root);
-    fs::create_dir_all(root_path).map_err(|e| format!("cannot create `{root}`: {e}"))?;
+    fs::create_dir_all(root_path).map_err(|e| LovaError::io(format!("cannot create `{root}`: {e}")))?;
     for dir in subdirs() {
-        fs::create_dir_all(root_path.join(dir)).map_err(|e| format!("cannot create `{dir}`: {e}"))?;
+        fs::create_dir_all(root_path.join(dir)).map_err(|e| LovaError::io(format!("cannot create `{dir}`: {e}")))?;
     }
     let manifest = serde_json::json!({
         "version": 1,
@@ -156,24 +150,25 @@ pub fn create_project(root: String, name: String) -> Result<ProjectInfo, String>
     });
     fs::write(
         root_path.join("project.json"),
-        serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?,
+        serde_json::to_string_pretty(&manifest).map_err(|e| LovaError::io(e.to_string()))?,
     )
-    .map_err(|e| format!("cannot write project.json: {e}"))?;
+    .map_err(|e| LovaError::io(format!("cannot write project.json: {e}")))?;
 
     let conn = open_db(root_path)?;
     conn.execute(
         "INSERT OR REPLACE INTO meta(key, value) VALUES ('name', ?1), ('created_at', ?2)",
         params![name, now_stamp()],
-    )
-    .map_err(|e| e.to_string())?;
+    )?;
     read_info(root_path)
 }
 
 #[tauri::command]
-pub fn open_project(root: String) -> Result<ProjectInfo, String> {
+pub fn open_project(root: String) -> Result<ProjectInfo, LovaError> {
     let root_path = Path::new(&root);
     if !root_path.join("project.json").is_file() {
-        return Err(format!("`{root}` is not a Lova 3D project (missing project.json)"));
+        return Err(LovaError::not_a_project(format!(
+            "`{root}` is not a Lova 3D project (missing project.json)"
+        )));
     }
     // Self-heal any missing folders/schema from older projects.
     for dir in subdirs() {
@@ -188,25 +183,24 @@ pub fn project_save_scene(
     file: String,
     name: String,
     contents: String,
-) -> Result<(), String> {
+) -> Result<(), LovaError> {
     let root_path = Path::new(&root);
     let target = safe_join(root_path, &file)?;
     if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("cannot create `{file}`: {e}"))?;
+        fs::create_dir_all(parent).map_err(|e| LovaError::io(format!("cannot create `{file}`: {e}")))?;
     }
-    fs::write(&target, contents).map_err(|e| format!("cannot write `{file}`: {e}"))?;
+    fs::write(&target, &contents).map_err(|e| LovaError::io(format!("cannot write `{file}`: {e}")))?;
     let conn = open_db(root_path)?;
     conn.execute(
         "INSERT INTO scenes(name, file, updated_at) VALUES (?1, ?2, ?3)
          ON CONFLICT(name) DO UPDATE SET file = ?2, updated_at = ?3",
         params![name, file, now_stamp()],
-    )
-    .map_err(|e| e.to_string())?;
+    )?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn import_asset(root: String, source: String, kind: String) -> Result<AssetInfo, String> {
+pub fn import_asset(root: String, source: String, kind: String) -> Result<AssetInfo, LovaError> {
     let allowed = ["models", "textures", "audio"];
     let kind = if allowed.contains(&kind.as_str()) {
         kind
@@ -217,7 +211,7 @@ pub fn import_asset(root: String, source: String, kind: String) -> Result<AssetI
     let source_path = Path::new(&source);
     let original = source_path
         .file_name()
-        .ok_or("import source has no file name")?
+        .ok_or_else(|| LovaError::io("import source has no file name"))?
         .to_string_lossy()
         .into_owned();
 
@@ -236,7 +230,7 @@ pub fn import_asset(root: String, source: String, kind: String) -> Result<AssetI
     }
 
     let dest = root_path.join("assets").join(&kind).join(&dest_name);
-    fs::copy(source_path, &dest).map_err(|e| format!("cannot import `{source}`: {e}"))?;
+    fs::copy(source_path, &dest).map_err(|e| LovaError::io(format!("cannot import `{source}`: {e}")))?;
     let bytes = fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
 
     let id = format!("a{}", now_stamp());
@@ -245,8 +239,7 @@ pub fn import_asset(root: String, source: String, kind: String) -> Result<AssetI
     conn.execute(
         "INSERT INTO assets(id, path, kind, bytes, imported_at, thumb) VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
         params![id, rel, kind, bytes as i64, now_stamp()],
-    )
-    .map_err(|e| e.to_string())?;
+    )?;
     Ok(AssetInfo {
         id,
         path: rel,
@@ -257,45 +250,44 @@ pub fn import_asset(root: String, source: String, kind: String) -> Result<AssetI
 }
 
 #[tauri::command]
-pub fn list_assets(root: String) -> Result<Vec<AssetInfo>, String> {
+pub fn list_assets(root: String) -> Result<Vec<AssetInfo>, LovaError> {
     Ok(read_info(Path::new(&root))?.assets)
 }
 
 #[tauri::command]
-pub fn set_asset_thumb(root: String, id: String, png_b64: String) -> Result<(), String> {
+pub fn set_asset_thumb(root: String, id: String, png_b64: String) -> Result<(), LovaError> {
     let root_path = Path::new(&root);
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(png_b64.trim_start_matches("data:image/png;base64,"))
-        .map_err(|e| format!("invalid base64 thumbnail: {e}"))?;
+        .map_err(|e| LovaError::io(format!("invalid base64 thumbnail: {e}")))?;
     let rel = format!(".lova/thumbs/{id}.png");
     let target = safe_join(root_path, &rel)?;
     if let Some(parent) = target.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    fs::write(&target, bytes).map_err(|e| format!("cannot write thumbnail: {e}"))?;
+    fs::write(&target, bytes).map_err(|e| LovaError::io(format!("cannot write thumbnail: {e}")))?;
     let conn = open_db(root_path)?;
-    conn.execute("UPDATE assets SET thumb = ?1 WHERE id = ?2", params![rel, id])
-        .map_err(|e| e.to_string())?;
+    conn.execute("UPDATE assets SET thumb = ?1 WHERE id = ?2", params![rel, id])?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn read_project_file_b64(root: String, file: String) -> Result<String, String> {
+pub fn read_project_file_b64(root: String, file: String) -> Result<String, LovaError> {
     let target = safe_join(Path::new(&root), &file)?;
-    let bytes = fs::read(&target).map_err(|e| format!("cannot read `{file}`: {e}"))?;
+    let bytes = fs::read(&target).map_err(|e| LovaError::io(format!("cannot read `{file}`: {e}")))?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 #[tauri::command]
-pub fn write_project_file_b64(root: String, file: String, b64: String) -> Result<(), String> {
+pub fn write_project_file_b64(root: String, file: String, b64: String) -> Result<(), LovaError> {
     let target = safe_join(Path::new(&root), &file)?;
     if let Some(parent) = target.parent() {
         let _ = fs::create_dir_all(parent);
     }
     let bytes = base64::engine::general_purpose::STANDARD
-        .decode(b64)
-        .map_err(|e| format!("invalid base64 payload: {e}"))?;
-    fs::write(&target, bytes).map_err(|e| format!("cannot write `{file}`: {e}"))?;
+        .decode(&b64)
+        .map_err(|e| LovaError::io(format!("invalid base64 payload: {e}")))?;
+    fs::write(&target, bytes).map_err(|e| LovaError::io(format!("cannot write `{file}`: {e}")))?;
     Ok(())
 }
 
@@ -332,7 +324,8 @@ mod tests {
 
         let empty = temp_root("empty");
         fs::create_dir_all(&empty).unwrap();
-        assert!(open_project(empty.to_string_lossy().into_owned()).is_err());
+        let err = open_project(empty.to_string_lossy().into_owned()).unwrap_err();
+        assert_eq!(err.kind, "not_a_project");
         let _ = fs::remove_dir_all(&root);
         let _ = fs::remove_dir_all(&empty);
     }
@@ -383,11 +376,12 @@ mod tests {
     }
 
     #[test]
-    fn path_traversal_is_refused() {
+    fn path_traversal_is_refused_with_typed_error() {
         let root = temp_root("traverse");
         let r = root.to_string_lossy().into_owned();
         create_project(r.clone(), "T".into()).unwrap();
-        assert!(read_project_file_b64(r.clone(), "../project.json".into()).is_err());
+        let err = read_project_file_b64(r.clone(), "../project.json".into()).unwrap_err();
+        assert_eq!(err.kind, "illegal_path");
         assert!(write_project_file_b64(r, "a/../../escape.txt".into(), "aGVsbG8=".into()).is_err());
         let _ = fs::remove_dir_all(&root);
     }

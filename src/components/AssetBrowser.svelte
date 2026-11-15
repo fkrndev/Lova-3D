@@ -2,32 +2,17 @@
   import Icon from "./ui/Icon.svelte";
   import { store } from "../engine/sceneStore.svelte";
   import { importAssetAction, newProjectAction, openProjectAction, refreshProjectAction } from "../engine/actions";
-  import { isTauri, readProjectFileB64 } from "../engine/io";
+  import { isTauri, projectAssetUrl } from "../engine/io";
   import { t } from "../i18n/index.svelte";
-  import type { AssetInfo } from "../engine/types";
-
-  /** Lazy thumbnail cache: asset id → data URL. */
-  const thumbs = new Map<string, string>();
-
-  async function thumbOf(asset: AssetInfo): Promise<string | null> {
-    if (!asset.thumb) return null;
-    const cached = thumbs.get(asset.id);
-    if (cached) return cached;
-    if (!isTauri || !store.project) return null;
-    try {
-      const b64 = await readProjectFileB64(store.project.root, asset.thumb);
-      const url = `data:image/png;base64,${b64}`;
-      thumbs.set(asset.id, url);
-      return url;
-    } catch {
-      return null;
-    }
-  }
 
   const usedPaths = $derived(new Set(store.scene.objects.map((o) => o.modelPath).filter(Boolean)));
 
   function assetIcon(kind: string): string {
     return kind === "models" ? "cube" : kind === "textures" ? "image" : "audio";
+  }
+
+  function thumbSrc(thumb: string): string | null {
+    return store.project ? projectAssetUrl(store.project.root, thumb) : null;
   }
 
   function formatBytes(bytes: number): string {
@@ -87,11 +72,15 @@
             onclick={() => asset.kind === "models" && addModel(asset.path)}
           >
             <span class="asset-thumb">
-              {#await thumbOf(asset)}
-                <Icon name={assetIcon(asset.kind)} size={22} />
-              {:then url}
-                {#if url}<img src={url} alt={asset.path} draggable="false" />{:else}<Icon name={assetIcon(asset.kind)} size={22} />{/if}
-              {/await}
+              <Icon name={assetIcon(asset.kind)} size={22} />
+              {#if asset.thumb && thumbSrc(asset.thumb)}
+                <img
+                  src={thumbSrc(asset.thumb)}
+                  alt={asset.path}
+                  draggable="false"
+                  onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
+                />
+              {/if}
             </span>
             <span class="asset-name">{asset.path.split("/").pop()}</span>
             <span class="asset-meta">{formatBytes(asset.bytes)}</span>

@@ -1,5 +1,8 @@
+mod asset_protocol;
+mod error;
 mod project;
 
+use error::LovaError;
 use std::fs;
 use std::path::Path;
 
@@ -7,20 +10,23 @@ use std::path::Path;
 /// The path always comes from a native save dialog on the frontend,
 /// so no extra filesystem scope is needed here.
 #[tauri::command]
-fn save_scene(path: String, contents: String) -> Result<(), String> {
-    fs::write(Path::new(&path), contents).map_err(|e| format!("failed to write `{path}`: {e}"))
+fn save_scene(path: String, contents: String) -> Result<(), LovaError> {
+    fs::write(Path::new(&path), &contents)
+        .map_err(|e| LovaError::io(format!("failed to write `{path}`: {e}")))
 }
 
 /// Reads a scene file chosen through a native open dialog.
 #[tauri::command]
-fn load_scene(path: String) -> Result<String, String> {
-    fs::read_to_string(Path::new(&path)).map_err(|e| format!("failed to read `{path}`: {e}"))
+fn load_scene(path: String) -> Result<String, LovaError> {
+    fs::read_to_string(Path::new(&path))
+        .map_err(|e| LovaError::io(format!("failed to read `{path}`: {e}")))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .register_uri_scheme_protocol("lovaasset", |_ctx, request| asset_protocol::handle(request))
         .invoke_handler(tauri::generate_handler![
             save_scene,
             load_scene,
@@ -70,13 +76,14 @@ mod tests {
     #[test]
     fn load_missing_file_returns_a_helpful_error() {
         let err = load_scene("Z:/definitely/missing/lova3d-scene.json".to_string()).unwrap_err();
-        assert!(err.contains("failed to read"), "unexpected error: {err}");
-        assert!(err.contains("missing"), "unexpected error: {err}");
+        assert!(err.message.contains("failed to read"), "unexpected error: {err}");
+        assert!(err.message.contains("missing"), "unexpected error: {err}");
+        assert_eq!(err.kind, "io");
     }
 
     #[test]
     fn save_to_an_invalid_path_returns_an_error() {
         let err = save_scene("Z:/no/such/dir/scene.json".to_string(), "{}".to_string()).unwrap_err();
-        assert!(err.contains("failed to write"), "unexpected error: {err}");
+        assert!(err.message.contains("failed to write"), "unexpected error: {err}");
     }
 }

@@ -132,6 +132,32 @@ describe("project actions", () => {
   });
 });
 
+describe("lovaasset protocol", () => {
+  it("builds platform-correct URLs", () => {
+    expect(io.projectAssetUrl("F:/G", "assets/models/a b.glb", "http:")).toBe(
+      "http://lovaasset.localhost/assets/models/a%20b.glb?root=F%3A%2FG"
+    );
+    expect(io.projectAssetUrl("F:/G", "x.glb", "tauri:")).toBe(
+      "lovaasset://localhost/x.glb?root=F%3A%2FG"
+    );
+  });
+
+  it("readAssetBytes falls back to base64 IPC outside the webview", async () => {
+    vi.mocked(core.invoke).mockResolvedValue("aGVsbG8=" as never);
+    const bytes = await io.readAssetBytes("F:/G", "assets/models/x.glb");
+    expect(bytes).toEqual(new Uint8Array([0x68, 0x65, 0x6c, 0x6c, 0x6f]));
+    expect(core.invoke).toHaveBeenCalledWith("read_project_file_b64", {
+      root: "F:/G",
+      file: "assets/models/x.glb",
+    });
+  });
+
+  it("readAssetBytes resolves null when both paths fail", async () => {
+    vi.mocked(core.invoke).mockRejectedValue(new Error("missing"));
+    expect(await io.readAssetBytes("F:/G", "nope.glb")).toBeNull();
+  });
+});
+
 describe("model objects", () => {
   it("addModel creates a uniquely-named model object referencing the asset path", () => {
     store.addModel("assets/models/robot.glb");

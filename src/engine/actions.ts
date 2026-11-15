@@ -24,7 +24,12 @@ function sceneSlug(): string {
   return base || "main";
 }
 
-const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** Errors may arrive as Error, plain strings, or structured `{kind,message}`. */
+const errText = (e: unknown): string => {
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === "object" && "message" in e) return String((e as { message: unknown }).message);
+  return String(e);
+};
 
 // ── project actions ───────────────────────────────────────────────────────
 
@@ -110,10 +115,12 @@ export async function importAssetAction(kind: AssetKind): Promise<void> {
     // Models get an offscreen-rendered thumbnail for the asset browser.
     if (kind === "models") {
       try {
-        const b64 = await io.readProjectFileB64(project.root, asset.path);
-        const { renderModelThumbnail } = await import("../engine/thumbnail");
-        const png = await renderModelThumbnail(io.b64ToBytes(b64), asset.path);
-        if (png) await io.setAssetThumb(project.root, asset.id, png);
+        const bytes = await io.readAssetBytes(project.root, asset.path);
+        if (bytes) {
+          const { renderModelThumbnail } = await import("../engine/thumbnail");
+          const png = await renderModelThumbnail(bytes, asset.path);
+          if (png) await io.setAssetThumb(project.root, asset.id, png);
+        }
       } catch {
         store.log("warn", t("assets.thumbnailFailed"));
       }

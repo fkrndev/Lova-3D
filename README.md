@@ -157,6 +157,19 @@ the legacy `--bg1`-style aliases used by the hand-written component CSS — one
 source of truth for both systems. New components should prefer Tailwind
 utilities (see `src/components/StatusBar.svelte` for the pattern).
 
+## Tauri engineering notes
+
+- **`lovaasset://` custom protocol** — project assets stream straight from disk
+  into the webview (no base64-over-IPC): Content-Type per extension, ETag/304
+  revalidation, CORS for the webview origin, and hard guards (only folders with
+  a `project.json` are served; path traversal refused). The frontend falls back
+  to IPC base64 outside the webview.
+- **Strict production CSP** (`devCsp` stays null for Vite HMR): scripts/styles
+  self-only, custom protocol + `ipc:` allow-listed, `object-src 'none'`. The
+  production build is smoke-tested to render the full editor under it.
+- **Structured command errors** — Rust commands return `LovaError { kind, message }`
+  (`io` / `not_a_project` / `illegal_path` / `db`) instead of bare strings.
+
 ## Testing
 
 The engine's logic (store, hierarchy math, physics, scripting api, behaviors,
