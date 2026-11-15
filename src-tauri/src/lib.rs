@@ -1,5 +1,6 @@
 mod asset_protocol;
 mod error;
+mod physics;
 mod project;
 
 use error::LovaError;
@@ -27,6 +28,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .register_uri_scheme_protocol("lovaasset", |_ctx, request| asset_protocol::handle(request))
+        .manage(physics::PhysicsState::default())
         .invoke_handler(tauri::generate_handler![
             save_scene,
             load_scene,
@@ -37,7 +39,12 @@ pub fn run() {
             project::list_assets,
             project::set_asset_thumb,
             project::read_project_file_b64,
-            project::write_project_file_b64
+            project::write_project_file_b64,
+            physics::physics_world_create,
+            physics::physics_step,
+            physics::physics_set_velocity,
+            physics::physics_teleport,
+            physics::physics_world_destroy
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lova 3D");

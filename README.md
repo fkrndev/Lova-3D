@@ -27,9 +27,11 @@ come alive, then save the whole thing as a portable JSON file.
 - **Gizmos** — move / rotate / scale (W / E / R), one history entry per drag
 - **Hierarchy panel** — parent/child tree with drag-drop reparenting (world
   position preserved), expand/collapse, search, rename, visibility, delete
-- **Physics (v0.2)** — static & dynamic bodies: gravity, bounce restitution,
-  initial velocity, ground half-spaces, sphere-vs-box (AABB) and sphere-vs-sphere
-  collisions — simulated during Play
+- **Physics (v0.3)** — dual-backend: the desktop app simulates with **native
+  Rapier (Rust)** — stateful worlds, real shapes (half-space grounds, cuboids,
+  balls, cylinders, capsules), CCD, grounded detection, scripted velocities and
+  teleports — while browsers and exported HTMLs run the deterministic TS arcade
+  simulation; the runtime picks automatically and falls back gracefully
 - **Scripting (v0.2)** — per-object JavaScript with `onStart()` / `onUpdate(dt, t)`
   hooks and an `api`: `position/rotation/scale`, `velocity` (write to jump),
   `grounded`, `find(name)`, `key(code)`, `log()`, `hud(text)` and a
@@ -200,10 +202,12 @@ npm run tauri -- icon app-icon.png
 
 ## Roadmap ideas
 
+- Unify physics: rapier-wasm in the exported player (editor/export parity)
+- Joints, raycasts & sensors on the Rust physics core
+- Script runtime in Rust/WASM off the UI thread
 - MCP agent mode (AI agents building games through the editor)
 - Scene camera object, texture application to materials
 - Multi-scene projects, prefabs/templates
-- Physics: rotated-parent support, box colliders, joints
 - Inline-Babylon export (offline single file)
 - Resizable panels
 

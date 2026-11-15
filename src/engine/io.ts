@@ -5,12 +5,34 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { open as dialogOpen, save as dialogSave } from "@tauri-apps/plugin-dialog";
-import type { AssetInfo, AssetKind, ProjectInfo, SceneData } from "./types";
+import type { AssetInfo, AssetKind, PhysicsBodyDesc, PhysicsBodyState, ProjectInfo, SceneData } from "./types";
 
 export const isTauri: boolean =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const SCENE_FILTERS = [{ name: "Lova 3D Scene", extensions: ["json"] }];
+
+// ── native physics (Rapier, Tauri-only) ───────────────────────────────────
+
+export async function physicsWorldCreate(bodies: PhysicsBodyDesc[]): Promise<number> {
+  return await invoke<number>("physics_world_create", { bodies });
+}
+
+export async function physicsStep(world: number, dt: number): Promise<PhysicsBodyState[]> {
+  return await invoke<PhysicsBodyState[]>("physics_step", { world, dt });
+}
+
+export async function physicsSetVelocity(world: number, id: string, linvel: [number, number, number]): Promise<void> {
+  await invoke("physics_set_velocity", { world, id, linvel });
+}
+
+export async function physicsTeleport(world: number, id: string, translation: [number, number, number]): Promise<void> {
+  await invoke("physics_teleport", { world, id, translation });
+}
+
+export async function physicsWorldDestroy(world: number): Promise<void> {
+  await invoke("physics_world_destroy", { world });
+}
 
 // ── project system (Tauri-only) ───────────────────────────────────────────
 

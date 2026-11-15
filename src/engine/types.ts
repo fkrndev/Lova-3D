@@ -167,6 +167,32 @@ export interface SceneData {
 export type GizmoMode = "position" | "rotation" | "scale";
 export type PlayState = "edit" | "playing" | "paused";
 
+// ── native physics bridge (Rapier, Rust side) ─────────────────────────────
+
+export type PhysicsShape =
+  | { kind: "ball"; radius: number }
+  | { kind: "cuboid"; hx: number; hy: number; hz: number }
+  | { kind: "halfspace" }
+  | { kind: "cylinder"; halfHeight: number; radius: number }
+  | { kind: "capsule"; halfHeight: number; radius: number };
+
+export interface PhysicsBodyDesc {
+  id: string;
+  dynamic: boolean;
+  shape: PhysicsShape;
+  translation: [number, number, number];
+  linvel?: [number, number, number];
+  restitution?: number;
+  friction?: number;
+}
+
+export interface PhysicsBodyState {
+  id: string;
+  translation: [number, number, number];
+  linvel: [number, number, number];
+  grounded: boolean;
+}
+
 export type LogKind = "info" | "warn" | "error" | "success";
 
 export interface LogEntry {

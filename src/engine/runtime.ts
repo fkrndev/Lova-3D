@@ -7,11 +7,24 @@
  * and runs per-object JS scripts — all written back into the store (which the
  * viewport bridge renders). On `stop` the edit-time snapshot is restored.
  */
+import type { PhysicsBodyDesc, PhysicsBodyState } from "./types";
 import type { SceneStore } from "./sceneStore.svelte";
 import type { GameObject, SceneData, Transform, Vec3 } from "./types";
 
+// io.ts is imported lazily so that the module graph (sceneStore → runtime)
+// does not evaluate `isTauri` before the test harness sets up Tauri internals.
+type IoModule = typeof import("./io");
+let ioModule: Promise<IoModule> | null = null;
+const loadIo = (): Promise<IoModule> => (ioModule ??= import("./io"));
+
+// Synchronous native decision (same check io.ts uses) — evaluated at module
+// load, which is safe for every test file's import ordering.
+const looksLikeTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
 const DEG = Math.PI / 180;
 const GRAVITY = 9.8;
+/** Position deltas above this are treated as teleports (respawns), not physics. */
+const TELEPORT_THRESHOLD = 0.75;
 
 function cloneTransform(t: Transform): Transform {
   return {
@@ -80,6 +93,16 @@ export class Runtime {
   private time = 0;
   private active = false;
 
+  // ── native Rapier physics (desktop) ─────────────────────────────────
+  private physWorld: number | null = null;
+  private physChain: Promise<void> = Promise.resolve();
+  private lastRapierPos = new Map<string, Vec3>();
+  /** True when world creation failed — fall back to the TS simulation. */
+  private rapierGaveUp = false;
+  /** Native decision made (io loaded, isTauri known)? */
+  private nativeDecided = false;
+  private useNative = false;
+
   get isActive(): boolean {
     return this.active;
   }
@@ -119,6 +142,112 @@ export class Runtime {
       }
     }
     this.active = true;
+    this.initRapier(scene);
+  }
+
+  /** Build a native Rapier world for the scene (desktop only). */
+  private initRapier(scene: SceneData): void {
+    this.nativeDecided = true;
+    this.useNative = looksLikeTauri;
+    if (!looksLikeTauri) return;
+    const store = this.store;
+    if (!store) return;
+    void loadIo()
+      .then(async (io) => {
+        if (!this.active || !this.store) return;
+        const bodies = this.buildBodyDescs(scene);
+        if (!bodies.some((b) => b.dynamic)) {
+          this.useNative = false; // nothing to simulate natively
+          return;
+        }
+        const world = await io.physicsWorldCreate(bodies);
+        if (!this.active) {
+          void io.physicsWorldDestroy(world).catch(() => undefined);
+          return;
+        }
+        this.physWorld = world;
+      })
+      .catch((e) => {
+        this.rapierGaveUp = true;
+        this.useNative = false;
+        this.store?.log("warn", `native physics unavailable (${String(e)}) — using the TS simulation`);
+      });
+  }
+
+  private buildBodyDescs(scene: SceneData): PhysicsBodyDesc[] {
+    const store = this.store!;
+    const bodies: PhysicsBodyDesc[] = [];
+    for (const obj of scene.objects) {
+      if (!obj.physics || !obj.mesh) continue;
+      const wt = store.worldTransformOf(obj);
+      const s = wt.scale;
+      const shape: PhysicsBodyDesc["shape"] = (() => {
+        switch (obj.mesh.kind) {
+          case "plane":
+            return { kind: "halfspace" };
+          case "box":
+            return { kind: "cuboid", hx: Math.max(s.x, 0.02) / 2, hy: Math.max(s.y, 0.02) / 2, hz: Math.max(s.z, 0.02) / 2 };
+          case "sphere":
+            return { kind: "ball", radius: (0.5 * s.x + 0.5 * s.y + 0.5 * s.z) / 3 };
+          case "cylinder":
+            return { kind: "cylinder", halfHeight: s.y / 2, radius: Math.min(s.x, s.z) / 2 };
+          case "capsule":
+            return { kind: "capsule", halfHeight: s.y / 2, radius: Math.min(s.x, s.z) / 2 };
+          default:
+            // cone / torus / imported models approximate as spheres.
+            return { kind: "ball", radius: 0.5 * Math.max(s.x, s.y, s.z) || 0.1 };
+        }
+      })();
+      bodies.push({
+        id: obj.id,
+        dynamic: obj.physics.type === "dynamic",
+        shape,
+        translation: [wt.position.x, wt.position.y, wt.position.z],
+        linvel: [obj.physics.velocity.x, obj.physics.velocity.y, obj.physics.velocity.z],
+        restitution: obj.physics.bounce,
+        friction: 0.6,
+      });
+    }
+    return bodies;
+  }
+
+  /** One ordered async Rapier step; results are applied to the live store. */
+  private enqueueRapierStep(dt: number): void {
+    const world = this.physWorld;
+    const store = this.store;
+    if (world === null || !store) return;
+    this.physChain = this.physChain.then(() => this.rapierStep(world, dt, store));
+  }
+
+  private async rapierStep(world: number, dt: number, store: SceneStore): Promise<void> {
+    if (!this.active || this.physWorld !== world || store.playState !== "playing") return;
+    try {
+      const io = await loadIo();
+      // Detect teleports (respawns / scripted jumps in position) before stepping.
+      for (const [id, last] of this.lastRapierPos) {
+        const o = store.getObject(id);
+        if (!o) continue;
+        const w = store.worldPositionOf(o);
+        if (Math.hypot(w.x - last.x, w.y - last.y, w.z - last.z) > TELEPORT_THRESHOLD) {
+          await io.physicsTeleport(world, id, [w.x, w.y, w.z]);
+        }
+      }
+      const states = await io.physicsStep(world, dt);
+      this.applyRapierStates(states, store);
+    } catch {
+      // World destroyed mid-flight (stop) — ignore.
+    }
+  }
+
+  private applyRapierStates(states: PhysicsBodyState[], store: SceneStore): void {
+    for (const st of states) {
+      const obj = store.getObject(st.id);
+      if (!obj) continue;
+      this.velocities.set(st.id, { x: st.linvel[0], y: st.linvel[1], z: st.linvel[2] });
+      this.groundedMap.set(st.id, st.grounded);
+      this.lastRapierPos.set(st.id, { x: st.translation[0], y: st.translation[1], z: st.translation[2] });
+      this.writeWorldPosition(obj, { x: st.translation[0], y: st.translation[1], z: st.translation[2] });
+    }
   }
 
   /** Called from the viewport render loop. */
@@ -129,7 +258,12 @@ export class Runtime {
     const t = this.time;
 
     this.applyBehaviors(t);
-    this.applyPhysics(dt);
+    if (this.physWorld !== null) {
+      // Native Rapier path (desktop): async ordered steps, no TS simulation.
+      this.enqueueRapierStep(dt);
+    } else if (this.nativeDecided && !this.useNative) {
+      this.applyPhysics(dt);
+    }
     this.runScripts(dt, t);
   }
 
@@ -149,6 +283,17 @@ export class Runtime {
     store.playHud = "";
     for (const off of this.keyListeners) off();
     this.keyListeners = [];
+    // Tear down the native world (if any) — fire and forget.
+    if (this.physWorld !== null) {
+      const world = this.physWorld;
+      this.physWorld = null;
+      void loadIo().then((io) => io.physicsWorldDestroy(world).catch(() => undefined));
+    }
+    this.lastRapierPos.clear();
+    this.rapierGaveUp = false;
+    this.nativeDecided = false;
+    this.useNative = false;
+    this.physChain = Promise.resolve();
     // Restore the exact edit-time state captured on start.
     store.restoreSceneJson(this.snapshotJson);
   }
@@ -528,7 +673,12 @@ export class Runtime {
             }
             return;
           }
-          self.velocities.set(targetId, { x: v.x ?? 0, y: v.y ?? 0, z: v.z ?? 0 });
+          const vel = { x: v.x ?? 0, y: v.y ?? 0, z: v.z ?? 0 };
+          self.velocities.set(targetId, vel);
+          if (self.physWorld !== null) {
+            const world = self.physWorld;
+            void loadIo().then((io) => io.physicsSetVelocity(world, targetId, [vel.x, vel.y, vel.z]).catch(() => undefined));
+          }
         },
         get grounded() {
           return self.groundedMap.get(targetId) === true;
