@@ -54,6 +54,152 @@ export function buildExportHtml(scene: SceneData, assets: Record<string, string>
   // Imported model assets (project-relative path → base64), embedded at export time.
   var ASSETS = ${assetsJson};
 
+  // ── physics backend: Rapier (WASM) with a TS arcade fallback ─────────
+  var physMode = "init"; // init → rapier | ts
+  var RAPIER = null;
+  var physWorld = null; // Rapier world
+  var physBodies = {};  // object id → RigidBody
+  var physRadius = {};  // object id → approx radius (grounded ray length)
+  var physLast = {};    // object id → last world position (teleport detection)
+  var TELEPORT_THRESHOLD = 0.75;
+
+  function initPhysics() {
+    if (!SCENE.objects.some(function (o) { return o.physics && o.physics.type === "dynamic"; })) {
+      physMode = "none";
+      return;
+    }
+    // Same engine family as the desktop editor (Rapier), via CDN. If the
+    // module or its WASM fails to load (offline), fall back to the built-in
+    // TS simulation so the game still plays.
+    var url = "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/+esm";
+    import(url)
+      .then(function (mod) {
+        RAPIER = mod.default || mod;
+        return RAPIER.init();
+      })
+      .then(function () {
+        buildRapierWorld();
+        physMode = "rapier";
+      })
+      .catch(function (e) {
+        window.__lovaPhysError = String(e);
+        console.warn("Rapier WASM unavailable — using the TS simulation:", e);
+        physMode = "ts";
+      });
+  }
+
+  function buildRapierWorld() {
+    physWorld = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+    physWorld.timestep = 1 / 60;
+    for (var i = 0; i < SCENE.objects.length; i++) {
+      var o = SCENE.objects[i];
+      if (!o.physics || !o.mesh) continue;
+      var w = worldTransform(o);
+      var s = w.scale;
+      var cd;
+      if (o.mesh.kind === "plane") {
+        cd = new RAPIER.ColliderDesc(new RAPIER.HalfSpace({ x: 0, y: 1, z: 0 }));
+      } else if (o.mesh.kind === "box") {
+        cd = RAPIER.ColliderDesc.cuboid(Math.max(s.x, 0.02) / 2, Math.max(s.y, 0.02) / 2, Math.max(s.z, 0.02) / 2);
+      } else if (o.mesh.kind === "sphere") {
+        cd = RAPIER.ColliderDesc.ball((0.5 * s.x + 0.5 * s.y + 0.5 * s.z) / 3);
+      } else if (o.mesh.kind === "cylinder") {
+        cd = RAPIER.ColliderDesc.cylinder(s.y / 2, Math.min(s.x, s.z) / 2);
+      } else if (o.mesh.kind === "capsule") {
+        cd = RAPIER.ColliderDesc.capsule(s.y / 2, Math.min(s.x, s.z) / 2);
+      } else {
+        cd = RAPIER.ColliderDesc.ball(Math.max(0.1, 0.5 * Math.max(s.x, s.y, s.z)));
+      }
+      cd.setRestitution(Math.min(1, Math.max(0, o.physics.bounce))).setFriction(0.6);
+
+      var bd;
+      if (o.physics.type === "dynamic") {
+        bd = RAPIER.RigidBodyDesc.dynamic()
+          .setTranslation(w.position.x, w.position.y, w.position.z)
+          .setLinvel(o.physics.velocity.x || 0, o.physics.velocity.y || 0, o.physics.velocity.z || 0)
+          .lockRotations()          // orientation is behavior/script-owned
+          .setCcdEnabled(true);
+      } else {
+        bd = RAPIER.RigidBodyDesc.fixed().setTranslation(w.position.x, w.position.y, w.position.z);
+      }
+      var body = physWorld.createRigidBody(bd);
+      physWorld.createCollider(cd, body);
+      if (o.physics.type === "dynamic") {
+        physBodies[o.id] = body;
+        physRadius[o.id] = Math.max(0.1, 0.5 * Math.max(s.x, s.y, s.z));
+        physLast[o.id] = { x: w.position.x, y: w.position.y, z: w.position.z };
+      }
+    }
+  }
+
+  function rapierGrounded() {
+    // Grounded via a short downward ray (contactsWith is not available in
+    // this Rapier build; intersectionsWithRay is).
+    var grounded = {};
+    for (var id in physBodies) {
+      var b = physBodies[id];
+      var t = b.translation();
+      var own = b.collider(0);
+      var r = physRadius[id] || 0.5;
+      grounded[id] = false;
+      var ray = new RAPIER.Ray({ x: t.x, y: t.y, z: t.z }, { x: 0, y: -1, z: 0 });
+      physWorld.intersectionsWithRay(ray, r + 0.15, true, function (hit) {
+        if (hit.collider !== own) grounded[id] = true;
+        return true; // keep iterating
+      });
+    }
+    return grounded;
+  }
+
+  function stepRapier(dt) {
+    try {
+      physWorld.timestep = Math.min(Math.max(dt, 1 / 240), 0.1);
+      // Teleport (respawn) detection before stepping.
+      for (var id in physBodies) {
+        var o = byId[id];
+        if (!o) continue;
+        var w = worldPos(o);
+        var last = physLast[id];
+        if (Math.hypot(w.x - last.x, w.y - last.y, w.z - last.z) > TELEPORT_THRESHOLD) {
+          physBodies[id].setTranslation({ x: w.x, y: w.y, z: w.z }, true);
+          physBodies[id].setLinvel({ x: 0, y: 0, z: 0 }, true);
+        }
+      }
+      physWorld.step();
+      var grounded = rapierGrounded();
+      for (var bid in physBodies) {
+        var t = physBodies[bid].translation();
+        var v = physBodies[bid].linvel();
+        physLast[bid] = { x: t.x, y: t.y, z: t.z };
+        vel[bid] = { x: v.x, y: v.y, z: v.z };
+        groundedMap[bid] = grounded[bid];
+        var ob = byId[bid];
+        if (ob) writeWorld(ob, { x: t.x, y: t.y, z: t.z });
+      }
+    } catch (e) {
+      window.__lovaPhysError = "step: " + String(e && e.message ? e.message : e);
+      console.error("rapier step failed:", e);
+      physMode = "ts"; // degrade gracefully instead of killing the loop
+    }
+  }
+
+  initPhysics();
+
+  // Expose the active physics backend for tests/debugging.
+  Object.defineProperty(window, "__lovaPhys", { get: function () { return physMode; } });
+  var physErrorValue = null;
+  Object.defineProperty(window, "__lovaPhysError", {
+    get: function () { return physErrorValue; },
+    set: function (v) { physErrorValue = v; },
+  });
+  /** Debug/testing probe: world-space position of a named object. */
+  window.__lovaProbe = function (name) {
+    for (var i = 0; i < SCENE.objects.length; i++) {
+      if (SCENE.objects[i].name === name) return worldPos(SCENE.objects[i]);
+    }
+    return null;
+  };
+
   var canvas = document.getElementById("stage");
   var engine = new BABYLON.Engine(canvas, true, { stencil: true, preserveDrawingBuffer: true }, true);
   var scene = new BABYLON.Scene(engine);
@@ -168,6 +314,7 @@ export function buildExportHtml(scene: SceneData, assets: Record<string, string>
   var byId = {};
   SCENE.objects.forEach(function (o) { byId[o.id] = o; });
   var bases = {}, vel = {}, radii = {};
+  var groundedMap = {}; // shared by both physics backends
   SCENE.objects.forEach(function (o) {
     bases[o.id] = cloneT(o.transform);
     if (o.physics) {
@@ -266,6 +413,9 @@ export function buildExportHtml(scene: SceneData, assets: Record<string, string>
           var o = byId[tid];
           if (!o || !o.physics || o.physics.type !== "dynamic") { console.warn("velocity requires Physics → Dynamic:", o && o.name); return; }
           vel[tid] = { x: v.x || 0, y: v.y || 0, z: v.z || 0 };
+          if (physMode === "rapier" && physBodies[tid]) {
+            physBodies[tid].setLinvel({ x: v.x || 0, y: v.y || 0, z: v.z || 0 }, true);
+          }
         },
         get grounded() { return groundedMap[tid] === true; },
         find: function (name) { for (var i = 0; i < SCENE.objects.length; i++) if (SCENE.objects[i].name === name) return handle(SCENE.objects[i].id); return null; },
@@ -329,8 +479,10 @@ export function buildExportHtml(scene: SceneData, assets: Record<string, string>
       }
     });
 
-    // physics
-    var groundedMap = {};
+    // physics — Rapier WASM when available, otherwise the TS arcade sim below
+    if (physMode === "rapier") {
+      stepRapier(dt);
+    } else if (physMode === "ts") {
     var grounds = [];
     var aabbs = [];
     SCENE.objects.forEach(function (o) {
@@ -424,6 +576,7 @@ export function buildExportHtml(scene: SceneData, assets: Record<string, string>
         if (bDyn) { vb.x -= imp * nx; vb.y -= imp * ny; vb.z -= imp * nz; }
       }
     }
+    } // end TS physics branch (physMode === "ts")
 
     // scripts
     scripts.forEach(function (s) {

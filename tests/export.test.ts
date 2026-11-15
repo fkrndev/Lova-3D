@@ -47,4 +47,16 @@ describe("buildExportHtml", () => {
     expect(html).toContain("Koin tersisa");
     expect(html.length).toBeGreaterThan(20_000);
   });
+
+  it("ships a dual physics backend: Rapier WASM with a TS fallback", () => {
+    const html = buildExportHtml(createDefaultScene());
+    // Rapier WASM via pinned CDN…
+    expect(html).toContain("@dimforge/rapier3d-compat@0.21.0");
+    expect(html).toContain("initPhysics");
+    expect(html).toContain("stepRapier");
+    expect(html).toContain("__lovaPhys");
+    // …and the built-in TS simulation as a graceful offline fallback.
+    expect(html).toContain('physMode = "ts"');
+    expect(html).toContain("GRAVITY");
+  });
 });

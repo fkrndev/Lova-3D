@@ -27,11 +27,12 @@ come alive, then save the whole thing as a portable JSON file.
 - **Gizmos** — move / rotate / scale (W / E / R), one history entry per drag
 - **Hierarchy panel** — parent/child tree with drag-drop reparenting (world
   position preserved), expand/collapse, search, rename, visibility, delete
-- **Physics (v0.3)** — dual-backend: the desktop app simulates with **native
-  Rapier (Rust)** — stateful worlds, real shapes (half-space grounds, cuboids,
-  balls, cylinders, capsules), CCD, grounded detection, scripted velocities and
-  teleports — while browsers and exported HTMLs run the deterministic TS arcade
-  simulation; the runtime picks automatically and falls back gracefully
+- **Physics (v0.4)** — the same engine everywhere: the desktop app simulates
+  with **native Rapier (Rust)** and exported HTML games load **Rapier WASM**
+  (CDN) — real shapes (half-space grounds, cuboids, balls, cylinders,
+  capsules), CCD, grounded detection, scripted velocities and teleports. A
+  deterministic TS arcade simulation remains as the automatic offline
+  fallback (`window.__lovaPhys` in exports tells you which backend is live)
 - **Scripting (v0.2)** — per-object JavaScript with `onStart()` / `onUpdate(dt, t)`
   hooks and an `api`: `position/rotation/scale`, `velocity` (write to jump),
   `grounded`, `find(name)`, `key(code)`, `log()`, `hud(text)` and a
@@ -202,13 +203,12 @@ npm run tauri -- icon app-icon.png
 
 ## Roadmap ideas
 
-- Unify physics: rapier-wasm in the exported player (editor/export parity)
-- Joints, raycasts & sensors on the Rust physics core
+- Joints, sensors & trigger volumes on the Rust physics core
+- Inline the Rapier WASM into exports for a fully offline single file
 - Script runtime in Rust/WASM off the UI thread
 - MCP agent mode (AI agents building games through the editor)
 - Scene camera object, texture application to materials
 - Multi-scene projects, prefabs/templates
-- Inline-Babylon export (offline single file)
 - Resizable panels
 
 ## License
