@@ -472,6 +472,36 @@ function onUpdate(dt, t) {
         </section>
       {/if}
 
+      <!-- ── Sensor ───────────────────────────────────────────────── -->
+      <section class="isection">
+        <h3>{t("inspector.sensor")}</h3>
+        <label class="row">
+          <span class="lbl">{t("inspector.enabled")}</span>
+          <input
+            type="checkbox"
+            class="checkbox"
+            checked={!!selected.sensor}
+            disabled={!editing}
+            onchange={(e) => store.setSensor(selected.id, e.currentTarget.checked)}
+          />
+        </label>
+        {#if selected.sensor}
+          <div class="row">
+            <span class="lbl">{t("inspector.sensorRadius")}</span>
+            <NumberField
+              value={selected.sensor.radius}
+              step={0.1}
+              min={0.05}
+              precision={2}
+              disabled={!editing}
+              onInput={(v) => store.patchSensor(selected.id, { radius: v })}
+              onCommit={commitSoon}
+            />
+          </div>
+          <p class="script-hint">{t("inspector.sensorHint")}</p>
+        {/if}
+      </section>
+
       <!-- ── Script ──────────────────────────────────────────────── -->
       <section class="isection">
         <h3>{t("inspector.script")}</h3>

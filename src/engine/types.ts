@@ -123,6 +123,11 @@ export interface GameObject {
   physics?: PhysicsDef;
   /** JS source, run on Play: `function onStart() {}` / `function onUpdate(dt, t) {}` with `api.*`. */
   script?: string;
+  /**
+   * Spherical trigger volume: dynamic bodies entering/leaving the radius fire
+   * `onTriggerEnter(other)` / `onTriggerLeave(other)` on this object's script.
+   */
+  sensor?: { radius: number };
   behaviors: Behavior[];
 }
 

@@ -169,6 +169,9 @@ export function validateScene(text: string): SceneData {
     if (o.mesh?.kind === "model" && typeof o.modelPath !== "string") {
       throw new Error("model object missing modelPath");
     }
+    if (o.sensor) {
+      o.sensor.radius ??= 1;
+    }
     if (o.physics) {
       o.physics.bounce ??= 0.4;
       o.physics.gravityScale ??= 1;

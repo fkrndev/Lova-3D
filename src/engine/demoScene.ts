@@ -62,16 +62,11 @@ function onUpdate(dt, t) {
   api.hud(left === 0 ? "Semua koin terkumpul — MENANG! \\u{1F389}" : "Koin tersisa: " + left);
 }`;
 
-const COIN_SCRIPT = `var player = api.find("Player");
-function onUpdate(dt, t) {
+const COIN_SCRIPT = `function onTriggerEnter(other) {
   if (api.scale.x < 0.1) return; // already collected
-  var p = player ? player.position : null;
-  if (!p) return;
-  var m = api.position;
-  if (Math.hypot(p.x - m.x, p.y - m.y, p.z - m.z) < 1.25) {
-    api.scale = { x: 0.01, y: 0.01, z: 0.01 };
-    api.log("Koin didapat!");
-  }
+  if (other.name !== "Player") return;
+  api.scale = { x: 0.01, y: 0.01, z: 0.01 };
+  api.log("Koin didapat!");
 }`;
 
 const MOVER_SCRIPT = `var baseX = 6;
@@ -210,8 +205,23 @@ export function createThirdPersonDemo(): SceneData {
     coin.behaviors.push(createBehavior("spin"));
     (coin.behaviors[0] as { speed: { x: number; y: number; z: number } }).speed = { x: 0, y: 220, z: 0 };
     coin.script = COIN_SCRIPT;
+    coin.sensor = { radius: 1.1 };
     objects.push(coin);
   });
+
+  // Lava zone: stepping in respawns the player at spawn.
+  const lava = mesh("cylinder", "Lava");
+  place(lava, [-12, 0.06, 8], [6, 0.12, 6], "#ff3b30", { roughness: 0.35, metallic: 0.1 });
+  lava.sensor = { radius: 3 };
+  lava.script = [
+    "function onTriggerEnter(other) {",
+    "  if (other.name !== 'Player') return;",
+    "  other.position = { x: 0, y: 3, z: 0 };",
+    "  other.velocity = { x: 0, y: 0, z: 0 };",
+    "  api.log('Kena lava! Respawan.');",
+    "}",
+  ].join("\n");
+  objects.push(lava);
 
   // ── lights ───────────────────────────────────────────────────────────
   const sun = createLightObject("directional", objects);

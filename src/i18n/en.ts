@@ -89,6 +89,9 @@ const en = {
   "physics.velocity": "Velocity",
 
   "inspector.script": "Script",
+  "inspector.sensor": "Sensor",
+  "inspector.sensorRadius": "Radius",
+  "inspector.sensorHint": "Trigger zone: define onTriggerEnter(other) / onTriggerLeave(other) in the script.",
   "script.placeholder": "// function onStart() {}\n// function onUpdate(dt, t) {}",
   "script.example": "Insert example",
   "script.hint": "Runs on Play — api: position, rotation (°), scale, find(name), key(code), log(...)",

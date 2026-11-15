@@ -59,4 +59,12 @@ describe("buildExportHtml", () => {
     expect(html).toContain('physMode = "ts"');
     expect(html).toContain("GRAVITY");
   });
+
+  it("ships the trigger-volume system", () => {
+    const html = buildExportHtml(createDefaultScene());
+    expect(html).toContain("updateSensors");
+    expect(html).toContain("onTriggerEnter");
+    expect(html).toContain("onTriggerLeave");
+    expect(html).toContain("fireTrigger");
+  });
 });

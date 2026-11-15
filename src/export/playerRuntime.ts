@@ -315,12 +315,14 @@ export function buildExportHtml(scene: SceneData, assets: Record<string, string>
   SCENE.objects.forEach(function (o) { byId[o.id] = o; });
   var bases = {}, vel = {}, radii = {};
   var groundedMap = {}; // shared by both physics backends
+  var bodyRadius = {}; // dynamic id → approx radius (sensor overlap)
   SCENE.objects.forEach(function (o) {
     bases[o.id] = cloneT(o.transform);
     if (o.physics) {
       vel[o.id] = { x: o.physics.velocity.x || 0, y: o.physics.velocity.y || 0, z: o.physics.velocity.z || 0 };
       var s = o.transform.scale;
       radii[o.id] = 0.5 * Math.max(s.x, s.y, s.z);
+      if (o.physics.type === "dynamic") bodyRadius[o.id] = radii[o.id];
     }
   });
 
@@ -384,14 +386,63 @@ export function buildExportHtml(scene: SceneData, assets: Record<string, string>
   }
 
   var scripts = [];
+  var sensorInside = {}; // sensor object id → Set of dynamic ids inside
+
+  /** Trigger volumes — mirrors the editor runtime exactly. */
+  function updateSensors(dt) {
+    for (var i = 0; i < SCENE.objects.length; i++) {
+      var obj = SCENE.objects[i];
+      if (!obj.sensor) continue;
+      var entry = null;
+      for (var k = 0; k < scripts.length; k++) if (scripts[k].id === obj.id) { entry = scripts[k]; break; }
+      if (!entry || (!entry.onTriggerEnter && !entry.onTriggerLeave)) continue;
+
+      var center = worldPos(obj);
+      var radius = Math.max(0.05, obj.sensor.radius);
+      var inside = [];
+      for (var j = 0; j < SCENE.objects.length; j++) {
+        var body = SCENE.objects[j];
+        if (body.id === obj.id || !body.physics || body.physics.type !== "dynamic") continue;
+        var p = worldPos(body);
+        var br = bodyRadius[body.id] || 0.5;
+        if (Math.hypot(p.x - center.x, p.y - center.y, p.z - center.z) <= radius + br) inside.push(body.id);
+      }
+
+      var prev = sensorInside[obj.id] || {};
+      var prevSet = {};
+      for (var key in prev) prevSet[key] = true;
+      for (var a = 0; a < inside.length; a++) {
+        if (!prevSet[inside[a]]) fireTrigger(entry, "onTriggerEnter", inside[a]);
+      }
+      for (var pid in prevSet) {
+        var still = false;
+        for (var b = 0; b < inside.length; b++) if (inside[b] === pid) still = true;
+        if (!still) fireTrigger(entry, "onTriggerLeave", pid);
+      }
+      var next = {};
+      for (var c = 0; c < inside.length; c++) next[inside[c]] = true;
+      sensorInside[obj.id] = next;
+    }
+  }
+
+  function fireTrigger(entry, hook, otherId) {
+    var fn = entry[hook];
+    if (!fn || !byId[otherId]) return;
+    try {
+      fn(makeApi(otherId));
+    } catch (e) {
+      console.error("script [" + entry.api.name + "]." + hook + ":", e && e.message ? e.message : e);
+      entry[hook] = null;
+    }
+  }
   SCENE.objects.forEach(function (o) {
     if (!o.script || !o.script.trim()) return;
     try {
       var factory = new Function("api",
-        '"use strict";\\n' + o.script + '\\n;return { onStart: typeof onStart === "function" ? onStart : null, onUpdate: typeof onUpdate === "function" ? onUpdate : null };');
+        '"use strict";\\n' + o.script + '\\n;return { onStart: typeof onStart === "function" ? onStart : null, onUpdate: typeof onUpdate === "function" ? onUpdate : null, onTriggerEnter: typeof onTriggerEnter === "function" ? onTriggerEnter : null, onTriggerLeave: typeof onTriggerLeave === "function" ? onTriggerLeave : null };');
       var api = makeApi(o.id);
       var hooks = factory(api);
-      scripts.push({ id: o.id, api: api, onStart: hooks.onStart, onUpdate: hooks.onUpdate });
+      scripts.push({ id: o.id, api: api, onStart: hooks.onStart, onUpdate: hooks.onUpdate, onTriggerEnter: hooks.onTriggerEnter || null, onTriggerLeave: hooks.onTriggerLeave || null });
     } catch (e) {
       console.error("script [" + o.name + "]:", e && e.message ? e.message : e);
     }
@@ -577,6 +628,9 @@ export function buildExportHtml(scene: SceneData, assets: Record<string, string>
       }
     }
     } // end TS physics branch (physMode === "ts")
+
+    // trigger volumes (store-level, identical across physics backends)
+    updateSensors(dt);
 
     // scripts
     scripts.forEach(function (s) {

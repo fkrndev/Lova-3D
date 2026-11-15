@@ -496,6 +496,21 @@ export class SceneStore {
     this.commitSoon();
   }
 
+  setSensor(objectId: string, enabled: boolean): void {
+    const obj = this.getObject(objectId);
+    if (!obj || this.playState !== "edit") return;
+    if (enabled) obj.sensor = { radius: 1.5 };
+    else obj.sensor = undefined;
+    this.commit();
+  }
+
+  patchSensor(objectId: string, patch: Partial<{ radius: number }>): void {
+    const obj = this.getObject(objectId);
+    if (!obj?.sensor || this.playState !== "edit") return;
+    Object.assign(obj.sensor, patch);
+    this.commitSoon();
+  }
+
   // ────────────────────────────── scenes ───────────────────────────────
 
   newScene(): void {

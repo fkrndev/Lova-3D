@@ -40,6 +40,8 @@ interface ScriptEntry {
   id: string;
   onStart: (() => void) | null;
   onUpdate: ((dt: number, t: number) => void) | null;
+  onTriggerEnter: ((other: ScriptApi) => void) | null;
+  onTriggerLeave: ((other: ScriptApi) => void) | null;
   api: ScriptApi;
 }
 
@@ -76,6 +78,8 @@ interface ScriptApi {
   };
 }
 
+type TriggerHook = "onTriggerEnter" | "onTriggerLeave";
+
 export class Runtime {
   private store: SceneStore | null = null;
   private snapshotJson = "";
@@ -85,6 +89,8 @@ export class Runtime {
   private scripts = new Map<string, ScriptEntry>();
   private keys = new Set<string>();
   private keyListeners: Array<() => void> = [];
+  /** Sensor state: object id → set of dynamic ids currently inside. */
+  private sensorInside = new Map<string, Set<string>>();
   private groundedMap = new Map<string, boolean>();
   private velocityWarned = new Set<string>();
   /** Previous-frame centers of static AABB colliders (moving-platform carry). */
@@ -265,6 +271,57 @@ export class Runtime {
       this.applyPhysics(dt);
     }
     this.runScripts(dt, t);
+    this.updateSensors();
+  }
+
+  /**
+   * Trigger volumes — pure store-level system, identical across the native,
+   * WASM and TS backends: spherical overlap between `sensor` objects and
+   * dynamic bodies, diffed per frame into enter/leave script hooks.
+   */
+  private updateSensors(): void {
+    const store = this.store;
+    if (!store) return;
+    for (const obj of store.scene.objects) {
+      if (!obj.sensor) continue;
+      const entry = this.scripts.get(obj.id);
+      if (!entry || (!entry.onTriggerEnter && !entry.onTriggerLeave)) continue;
+
+      const center = store.worldPositionOf(obj);
+      const radius = Math.max(0.05, obj.sensor.radius);
+      const inside = new Set<string>();
+      for (const body of store.scene.objects) {
+        if (body.id === obj.id || body.physics?.type !== "dynamic") continue;
+        const p = store.worldPositionOf(body);
+        const bodyRadius = this.radii.get(body.id) ?? 0.5;
+        if (Math.hypot(p.x - center.x, p.y - center.y, p.z - center.z) <= radius + bodyRadius) {
+          inside.add(body.id);
+        }
+      }
+
+      const prev = this.sensorInside.get(obj.id) ?? new Set<string>();
+      for (const id of inside) {
+        if (!prev.has(id)) this.fireTrigger(entry, "onTriggerEnter", id);
+      }
+      for (const id of prev) {
+        if (!inside.has(id)) this.fireTrigger(entry, "onTriggerLeave", id);
+      }
+      this.sensorInside.set(obj.id, inside);
+    }
+  }
+
+  private fireTrigger(entry: ScriptEntry, hook: TriggerHook, otherId: string): void {
+    const store = this.store;
+    if (!store) return;
+    const fn = entry[hook];
+    if (!fn) return;
+    if (!store.getObject(otherId)) return; // removed mid-play
+    try {
+      fn(this.makeApi(otherId));
+    } catch (e) {
+      store.log("error", `script [${entry.api.name}].${hook}: ${e instanceof Error ? e.message : String(e)}`);
+      entry[hook] = null; // don't spam every frame
+    }
   }
 
   stop(): void {
@@ -277,6 +334,7 @@ export class Runtime {
     this.radii.clear();
     this.scripts.clear();
     this.groundedMap.clear();
+    this.sensorInside.clear();
     this.velocityWarned.clear();
     this.aabbPrev.clear();
     this.keys.clear();
@@ -611,13 +669,20 @@ export class Runtime {
       try {
         const factory = new Function(
           "api",
-          `"use strict";\n${obj.script}\n;return { onStart: typeof onStart === "function" ? onStart : null, onUpdate: typeof onUpdate === "function" ? onUpdate : null };`
+          `"use strict";\n${obj.script}\n;return { onStart: typeof onStart === "function" ? onStart : null, onUpdate: typeof onUpdate === "function" ? onUpdate : null, onTriggerEnter: typeof onTriggerEnter === "function" ? onTriggerEnter : null, onTriggerLeave: typeof onTriggerLeave === "function" ? onTriggerLeave : null };`
         );
         // The api binds to the LIVE store object (not the snapshot) so edits
         // during play (paused) are reflected too.
         const api = this.makeApi(obj.id);
         const hooks = factory(api);
-        this.scripts.set(obj.id, { id: obj.id, onStart: hooks.onStart, onUpdate: hooks.onUpdate, api });
+        this.scripts.set(obj.id, {
+          id: obj.id,
+          onStart: hooks.onStart,
+          onUpdate: hooks.onUpdate,
+          onTriggerEnter: hooks.onTriggerEnter ?? null,
+          onTriggerLeave: hooks.onTriggerLeave ?? null,
+          api,
+        });
       } catch (e) {
         store.log("error", `script [${obj.name}]: ${e instanceof Error ? e.message : String(e)}`);
       }

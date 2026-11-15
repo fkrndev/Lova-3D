@@ -38,6 +38,11 @@ come alive, then save the whole thing as a portable JSON file.
   `grounded`, `find(name)`, `key(code)`, `log()`, `hud(text)` and a
   **third-person camera** (`api.camera.follow(api)`, drag the viewport to orbit)
   — runs during Play, in the editor and in exported games
+- **Trigger volumes (v0.5)** — any object can be a spherical **sensor**;
+  dynamic bodies entering/leaving fire `onTriggerEnter(other)` /
+  `onTriggerLeave(other)` on its script (kill zones, checkpoints, portals).
+  Implemented at the store level, so behaviour is identical on the native,
+  WASM and TS physics backends. The demo's coins and lava respawn zone use it
 - **Export playable HTML (v0.2)** — one click writes a single self-contained
   `.html` (Babylon.js via CDN + inlined scene) that anyone can open and play
 - **Stability (v0.2)** — autosave with crash recovery on next launch, and a
@@ -203,7 +208,7 @@ npm run tauri -- icon app-icon.png
 
 ## Roadmap ideas
 
-- Joints, sensors & trigger volumes on the Rust physics core
+- Joints (springs, hinges) on the Rust physics core
 - Inline the Rapier WASM into exports for a fully offline single file
 - Script runtime in Rust/WASM off the UI thread
 - MCP agent mode (AI agents building games through the editor)

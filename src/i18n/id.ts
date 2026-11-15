@@ -91,6 +91,9 @@ const id: Dict = {
   "physics.velocity": "Kecepatan",
 
   "inspector.script": "Skrip",
+  "inspector.sensor": "Sensor",
+  "inspector.sensorRadius": "Radius",
+  "inspector.sensorHint": "Zona pemicu: definisikan onTriggerEnter(other) / onTriggerLeave(other) di skrip.",
   "script.placeholder": "// function onStart() {}\n// function onUpdate(dt, t) {}",
   "script.example": "Sisipkan contoh",
   "script.hint": "Berjalan saat Play — api: position, rotation (°), scale, find(name), key(code), log(...)",
