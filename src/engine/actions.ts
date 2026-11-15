@@ -3,6 +3,7 @@
  */
 import { t } from "../i18n/index.svelte";
 import { buildExportHtml } from "../export/playerRuntime";
+import { createThirdPersonDemo } from "./demoScene";
 import * as io from "./io";
 import { store } from "./sceneStore.svelte";
 
@@ -17,6 +18,13 @@ function sceneFileName(): string {
 export async function newSceneAction(): Promise<void> {
   if (store.dirty && !window.confirm(t("confirm.new"))) return;
   store.newScene();
+}
+
+/** Load the built-in third-person demo ("Lova Obby"). */
+export async function loadDemoAction(): Promise<void> {
+  if (store.dirty && !window.confirm(t("confirm.new"))) return;
+  store.stop();
+  store.loadScene(createThirdPersonDemo(), null);
 }
 
 export async function openSceneAction(): Promise<void> {

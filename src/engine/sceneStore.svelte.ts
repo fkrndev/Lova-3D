@@ -48,6 +48,8 @@ export class SceneStore {
   dirty = $state(false);
   /** True when the session started from a recovered autosave. */
   recovered = $state(false);
+  /** HUD text set by game scripts during play. */
+  playHud = $state("");
   currentPath = $state<string | null>(null);
   fps = $state(0);
 
@@ -541,6 +543,7 @@ export class SceneStore {
     if (this.playState === "edit") return;
     runtime.stop();
     this.playState = "edit";
+    this.playHud = "";
     this.log("info", t("log.playStopped"));
   }
 

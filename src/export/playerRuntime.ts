@@ -30,11 +30,19 @@ export function buildExportHtml(scene: SceneData): string {
     position: fixed; bottom: 8px; left: 10px; color: #5c6472; font: 11px/1.4 "Segoe UI", system-ui, sans-serif;
     background: rgba(15,17,21,.78); border-radius: 5px; padding: 3px 8px; pointer-events: none;
   }
+  #hud {
+    position: fixed; top: 10px; left: 50%; transform: translateX(-50%); max-width: 70%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: #d7dce4; font: 600 14px/1.4 "Segoe UI", system-ui, sans-serif;
+    background: rgba(15,17,21,.82); border: 1px solid #262b35; border-radius: 8px;
+    padding: 6px 14px; pointer-events: none; display: none;
+  }
 </style>
 </head>
 <body>
 <canvas id="stage"></canvas>
 <div id="badge">&#9829; ${escapeHtml(scene.name)}</div>
+<div id="hud"></div>
 <div id="hint">Drag orbit &middot; Wheel zoom &middot; Right-drag pan</div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script>
@@ -180,6 +188,31 @@ export function buildExportHtml(scene: SceneData): string {
   window.addEventListener("keyup", function (e) { keys[e.code] = false; });
   window.addEventListener("blur", function () { keys = {}; });
 
+  // ── script play camera (third-person) ─────────────────────────────────
+  var hudEl = document.getElementById("hud");
+  var playCam = { active: false, targetId: null, targetPos: { x: 0, y: 1, z: 0 }, yaw: 0, pitch: 20, distance: 8 };
+  var camDrag = { down: false, x: 0, y: 0 };
+  canvas.addEventListener("pointerdown", function (e) {
+    if (e.button === 0 && playCam.active) { camDrag.down = true; camDrag.x = e.clientX; camDrag.y = e.clientY; }
+  });
+  canvas.addEventListener("pointermove", function (e) {
+    if (!camDrag.down || !playCam.active) return;
+    playCam.yaw += (e.clientX - camDrag.x) * 0.3;
+    playCam.pitch = Math.max(-80, Math.min(85, playCam.pitch + (e.clientY - camDrag.y) * 0.3));
+    camDrag.x = e.clientX; camDrag.y = e.clientY;
+  });
+  window.addEventListener("pointerup", function () { camDrag.down = false; });
+  function applyPlayCamera() {
+    if (!playCam.active) return;
+    var t = playCam.targetId && nodes[playCam.targetId]
+      ? nodes[playCam.targetId].root.getAbsolutePosition()
+      : new BABYLON.Vector3(playCam.targetPos.x, playCam.targetPos.y, playCam.targetPos.z);
+    camera.setTarget(t);
+    camera.radius = Math.max(1, playCam.distance);
+    camera.alpha = (270 - playCam.yaw) * DEG; // camera behind forward (sin yaw, cos yaw)
+    camera.beta = Math.max(0.05, Math.min(1.52, (90 - playCam.pitch) * DEG));
+  }
+
   var scripts = [];
   SCENE.objects.forEach(function (o) {
     if (!o.script || !o.script.trim()) return;
@@ -205,9 +238,31 @@ export function buildExportHtml(scene: SceneData): string {
         set rotation(v) { if (byId[tid]) byId[tid].transform.rotation = { x: v.x || 0, y: v.y || 0, z: v.z || 0 }; },
         get scale() { var s = byId[tid] && byId[tid].transform.scale; return s ? { x: s.x, y: s.y, z: s.z } : { x: 1, y: 1, z: 1 }; },
         set scale(v) { if (byId[tid]) byId[tid].transform.scale = { x: v.x || 1, y: v.y || 1, z: v.z || 1 }; },
+        get velocity() { var v = vel[tid]; return v ? { x: v.x, y: v.y, z: v.z } : { x: 0, y: 0, z: 0 }; },
+        set velocity(v) {
+          var o = byId[tid];
+          if (!o || !o.physics || o.physics.type !== "dynamic") { console.warn("velocity requires Physics → Dynamic:", o && o.name); return; }
+          vel[tid] = { x: v.x || 0, y: v.y || 0, z: v.z || 0 };
+        },
+        get grounded() { return groundedMap[tid] === true; },
         find: function (name) { for (var i = 0; i < SCENE.objects.length; i++) if (SCENE.objects[i].name === name) return handle(SCENE.objects[i].id); return null; },
         key: function (code) { return !!keys[code]; },
-        log: function () { console.log.apply(console, arguments); }
+        log: function () { console.log.apply(console, arguments); },
+        hud: function (text) {
+          hudEl.textContent = text == null ? "" : String(text);
+          hudEl.style.display = text ? "block" : "none";
+        },
+        camera: {
+          follow: function (target) { playCam.active = true; playCam.targetId = target ? target.id : null; },
+          lookAt: function (pos) { playCam.active = true; playCam.targetId = null; playCam.targetPos = { x: pos.x || 0, y: pos.y || 0, z: pos.z || 0 }; },
+          stop: function () { playCam.active = false; },
+          get yaw() { return playCam.yaw; },
+          set yaw(v) { playCam.yaw = v || 0; },
+          get pitch() { return playCam.pitch; },
+          set pitch(v) { playCam.pitch = Math.max(-80, Math.min(85, v || 0)); },
+          get distance() { return playCam.distance; },
+          set distance(v) { playCam.distance = Math.max(1, v || 8); }
+        }
       };
     }
     return handle(id);
@@ -251,9 +306,16 @@ export function buildExportHtml(scene: SceneData): string {
     });
 
     // physics
+    var groundedMap = {};
     var grounds = [];
+    var aabbs = [];
     SCENE.objects.forEach(function (o) {
-      if (o.physics && o.physics.type === "static" && o.mesh && o.mesh.kind === "plane") grounds.push(worldPos(o).y);
+      if (!o.physics || !o.mesh) return;
+      if (o.physics.type === "static" && o.mesh.kind === "plane") grounds.push(worldPos(o).y);
+      if (o.physics.type === "static" && o.mesh.kind === "box") {
+        var wt = worldTransform(o);
+        aabbs.push({ cx: wt.position.x, cy: wt.position.y, cz: wt.position.z, hx: Math.max(wt.scale.x, 0.01) / 2, hy: Math.max(wt.scale.y, 0.01) / 2, hz: Math.max(wt.scale.z, 0.01) / 2 });
+      }
     });
     if (!grounds.length) grounds.push(0);
     SCENE.objects.forEach(function (o) {
@@ -271,12 +333,36 @@ export function buildExportHtml(scene: SceneData): string {
           grounded = true;
         }
       });
+      aabbs.forEach(function (b) {
+        var qx = Math.min(Math.max(w.x, b.cx - b.hx), b.cx + b.hx);
+        var qy = Math.min(Math.max(w.y, b.cy - b.hy), b.cy + b.hy);
+        var qz = Math.min(Math.max(w.z, b.cz - b.hz), b.cz + b.hz);
+        var nx = w.x - qx, ny = w.y - qy, nz = w.z - qz;
+        var dist = Math.sqrt(nx * nx + ny * ny + nz * nz);
+        if (dist >= r) return;
+        if (dist < 1e-6) {
+          var dx = b.hx + r - Math.abs(w.x - b.cx), dy = b.hy + r - Math.abs(w.y - b.cy), dz = b.hz + r - Math.abs(w.z - b.cz);
+          if (dy <= dx && dy <= dz) { ny = w.y >= b.cy ? 1 : -1; nx = nz = 0; w.y = b.cy + (ny > 0 ? b.hy + r : -(b.hy + r)); }
+          else if (dx <= dz) { nx = w.x >= b.cx ? 1 : -1; ny = nz = 0; w.x = b.cx + (nx > 0 ? b.hx + r : -(b.hx + r)); }
+          else { nz = w.z >= b.cz ? 1 : -1; nx = ny = 0; w.z = b.cz + (nz > 0 ? b.hz + r : -(b.hz + r)); }
+        } else {
+          nx /= dist; ny /= dist; nz /= dist;
+          w.x = qx + nx * r; w.y = qy + ny * r; w.z = qz + nz * r;
+        }
+        var vn = v.x * nx + v.y * ny + v.z * nz;
+        if (vn < 0) {
+          var e = 1 + o.physics.bounce;
+          v.x -= e * vn * nx; v.y -= e * vn * ny; v.z -= e * vn * nz;
+        }
+        if (ny > 0.5) { grounded = true; if (Math.abs(v.y) < 0.9) v.y = 0; }
+      });
+      groundedMap[o.id] = grounded;
       if (grounded) { var damp = Math.max(0, 1 - 6 * dt); v.x *= damp; v.z *= damp; }
       writeWorld(o, w);
     });
 
-    // sphere/sphere collisions (planes excluded — handled as ground half-spaces)
-    var bodies = SCENE.objects.filter(function (o) { return o.physics && o.mesh && o.mesh.kind !== "plane"; });
+    // sphere/sphere collisions (planes & boxes excluded — ground half-spaces / AABBs)
+    var bodies = SCENE.objects.filter(function (o) { return o.physics && o.mesh && o.mesh.kind !== "plane" && o.mesh.kind !== "box"; });
     for (var i = 0; i < bodies.length; i++) {
       for (var j = i + 1; j < bodies.length; j++) {
         var a = bodies[i], b = bodies[j];
@@ -309,6 +395,7 @@ export function buildExportHtml(scene: SceneData): string {
 
     // push transforms to Babylon
     SCENE.objects.forEach(function (o) { applyTransform(o); });
+    applyPlayCamera();
     scene.render();
   });
 

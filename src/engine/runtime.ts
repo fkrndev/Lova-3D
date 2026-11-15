@@ -32,6 +32,12 @@ interface ScriptEntry {
 
 type Vec3Like = { x: number; y: number; z: number };
 
+/** Structural interface the ViewportBridge satisfies for the play camera. */
+export interface PlayCameraBridge {
+  getPlayCam(): { active: boolean; targetId: string | null; targetPos: Vec3Like; yaw: number; pitch: number; distance: number };
+  patchPlayCam(patch: { active?: boolean; targetId?: string | null; targetPos?: Vec3Like; yaw?: number; pitch?: number; distance?: number }): void;
+}
+
 /** Handle exposed to scripts: live getters/setters on the object's local transform. */
 interface ScriptApi {
   readonly id: string;
@@ -39,9 +45,22 @@ interface ScriptApi {
   readonly position: Vec3Like;
   readonly rotation: Vec3Like;
   readonly scale: Vec3Like;
+  /** World-space physics velocity (dynamic bodies only). */
+  readonly velocity: Vec3Like;
+  /** True while resting on ground/box tops — pair with a jump velocity. */
+  readonly grounded: boolean;
   find(name: string): ScriptApi | null;
   key(code: string): boolean;
   log(...args: unknown[]): void;
+  hud(text: string): void;
+  readonly camera: {
+    follow(target: ScriptApi | null): void;
+    lookAt(pos: Vec3Like): void;
+    stop(): void;
+    yaw: number;
+    pitch: number;
+    distance: number;
+  };
 }
 
 export class Runtime {
@@ -53,11 +72,19 @@ export class Runtime {
   private scripts = new Map<string, ScriptEntry>();
   private keys = new Set<string>();
   private keyListeners: Array<() => void> = [];
+  private groundedMap = new Map<string, boolean>();
+  private velocityWarned = new Set<string>();
+  private cameraBridge: PlayCameraBridge | null = null;
   private time = 0;
   private active = false;
 
   get isActive(): boolean {
     return this.active;
+  }
+
+  /** Called by the viewport panel so api.camera can drive the play camera. */
+  attachCamera(bridge: PlayCameraBridge): void {
+    this.cameraBridge = bridge;
   }
 
   start(store: SceneStore, snapshotJson: string): void {
@@ -113,7 +140,10 @@ export class Runtime {
     this.velocities.clear();
     this.radii.clear();
     this.scripts.clear();
+    this.groundedMap.clear();
+    this.velocityWarned.clear();
     this.keys.clear();
+    store.playHud = "";
     for (const off of this.keyListeners) off();
     this.keyListeners = [];
     // Restore the exact edit-time state captured on start.
@@ -168,8 +198,9 @@ export class Runtime {
 
   /**
    * Arcade rigid-body step in world space: gravity, ground half-space at each
-   * static plane's world height, and sphere/sphere collisions between bodies.
-   * World position is accumulated then written back as local = world − parentWorld.
+   * static plane's world height, sphere-vs-AABB for static box meshes, and
+   * sphere/sphere collisions between bodies. Also maintains the grounded flags
+   * used by scripts for jumping.
    */
   private applyPhysics(dt: number): void {
     const store = this.store!;
@@ -195,10 +226,27 @@ export class Runtime {
     }
     if (grounds.length === 0) grounds.push(0);
 
+    // Static box meshes act as axis-aligned colliders (world half extents).
+    const aabbs: Array<{ obj: GameObject; cx: number; cy: number; cz: number; hx: number; hy: number; hz: number }> = [];
+    for (const obj of objects) {
+      if (obj.physics?.type !== "static" || obj.mesh?.kind !== "box") continue;
+      const wt = store.worldTransformOf(obj);
+      aabbs.push({
+        obj,
+        cx: wt.position.x,
+        cy: wt.position.y,
+        cz: wt.position.z,
+        hx: Math.max(wt.scale.x, 0.01) / 2,
+        hy: Math.max(wt.scale.y, 0.01) / 2,
+        hz: Math.max(wt.scale.z, 0.01) / 2,
+      });
+    }
+
     for (const obj of dynamics) {
       const def = obj.physics!;
       const vel = this.velocities.get(obj.id) ?? vec3();
       const radius = this.radii.get(obj.id) ?? 0.5;
+      let grounded = false;
 
       // Integrate.
       vel.y -= GRAVITY * def.gravityScale * dt;
@@ -208,7 +256,6 @@ export class Runtime {
       world.z += vel.z * dt;
 
       // Ground collision (lowest supporting plane below the body).
-      let grounded = false;
       for (const gy of grounds) {
         const support = gy + radius;
         if (world.y < support) {
@@ -218,6 +265,60 @@ export class Runtime {
           grounded = true;
         }
       }
+
+      // Sphere vs static AABB (walls, platforms).
+      for (const box of aabbs) {
+        // Skip boxes whose top is far below the body (can't be standing on it).
+        const qx = Math.min(Math.max(world.x, box.cx - box.hx), box.cx + box.hx);
+        const qy = Math.min(Math.max(world.y, box.cy - box.hy), box.cy + box.hy);
+        const qz = Math.min(Math.max(world.z, box.cz - box.hz), box.cz + box.hz);
+        let nx = world.x - qx,
+          ny = world.y - qy,
+          nz = world.z - qz;
+        let dist = Math.hypot(nx, ny, nz);
+        if (dist >= radius) continue;
+        if (dist < 1e-6) {
+          // Center inside the box — push out along the shallowest axis.
+          const dx = box.hx + radius - Math.abs(world.x - box.cx);
+          const dy = box.hy + radius - Math.abs(world.y - box.cy);
+          const dz = box.hz + radius - Math.abs(world.z - box.cz);
+          if (dy <= dx && dy <= dz) {
+            ny = world.y >= box.cy ? 1 : -1;
+            nx = nz = 0;
+            dist = 0.0001;
+            world.y = box.cy + (ny > 0 ? box.hy + radius : -(box.hy + radius));
+          } else if (dx <= dz) {
+            nx = world.x >= box.cx ? 1 : -1;
+            ny = nz = 0;
+            dist = 0.0001;
+            world.x = box.cx + (nx > 0 ? box.hx + radius : -(box.hx + radius));
+          } else {
+            nz = world.z >= box.cz ? 1 : -1;
+            nx = ny = 0;
+            dist = 0.0001;
+            world.z = box.cz + (nz > 0 ? box.hz + radius : -(box.hz + radius));
+          }
+        } else {
+          nx /= dist;
+          ny /= dist;
+          nz /= dist;
+          world.x = qx + nx * radius;
+          world.y = qy + ny * radius;
+          world.z = qz + nz * radius;
+        }
+        const vn = vel.x * nx + vel.y * ny + vel.z * nz;
+        if (vn < 0) {
+          const restitution = def.bounce;
+          vel.x -= (1 + restitution) * vn * nx;
+          vel.y -= (1 + restitution) * vn * ny;
+          vel.z -= (1 + restitution) * vn * nz;
+        }
+        if (ny > 0.5) {
+          grounded = true;
+          if (Math.abs(vel.y) < 0.9) vel.y = 0;
+        }
+      }
+
       // Ground friction on the horizontal plane.
       if (grounded) {
         const damp = Math.max(0, 1 - 6 * dt);
@@ -226,13 +327,16 @@ export class Runtime {
       }
 
       this.velocities.set(obj.id, vel);
+      this.groundedMap.set(obj.id, grounded);
       this.writeWorldPosition(obj, world);
     }
 
-    // Sphere/sphere collisions between bodies — planes are excluded (they are
-    // already handled as ground half-spaces; a 24×24 plane must not act as a
-    // radius-12 sphere).
-    const bodies = objects.filter((o) => o.physics && o.mesh && o.mesh.kind !== "plane");
+    // Sphere/sphere collisions between round bodies — planes (ground
+    // half-spaces) and boxes (AABB colliders) are excluded: a 40×2 wall must
+    // not act as a radius-20 sphere.
+    const bodies = objects.filter(
+      (o) => o.physics && o.mesh && o.mesh.kind !== "plane" && o.mesh.kind !== "box"
+    );
     for (let i = 0; i < bodies.length; i++) {
       for (let j = i + 1; j < bodies.length; j++) {
         const a = bodies[i];
@@ -283,11 +387,13 @@ export class Runtime {
           va.x += impulse * nx;
           va.y += impulse * ny;
           va.z += impulse * nz;
+          if (ny < -0.5) this.groundedMap.set(a.id, true); // landed on top of b
         }
         if (bDyn && vb) {
           vb.x -= impulse * nx;
           vb.y -= impulse * ny;
           vb.z -= impulse * nz;
+          if (ny > 0.5) this.groundedMap.set(b.id, true); // landed on top of a
         }
       }
     }
@@ -389,6 +495,24 @@ export class Runtime {
           const o = store.getObject(targetId);
           if (o) o.transform.scale = { x: v.x ?? 1, y: v.y ?? 1, z: v.z ?? 1 };
         },
+        get velocity() {
+          const v = self.velocities.get(targetId);
+          return v ? { ...v } : vec3();
+        },
+        set velocity(v: Vec3Like) {
+          const o = store.getObject(targetId);
+          if (!o?.physics || o.physics.type !== "dynamic") {
+            if (!self.velocityWarned.has(targetId)) {
+              self.velocityWarned.add(targetId);
+              store.log("warn", `script [${o?.name ?? targetId}]: velocity requires Physics → Dynamic`);
+            }
+            return;
+          }
+          self.velocities.set(targetId, { x: v.x ?? 0, y: v.y ?? 0, z: v.z ?? 0 });
+        },
+        get grounded() {
+          return self.groundedMap.get(targetId) === true;
+        },
         find(name: string): ScriptApi | null {
           const found = store.scene.objects.find((o) => o.name === name);
           return found ? handle(found.id) : null;
@@ -398,6 +522,42 @@ export class Runtime {
         },
         log(...args: unknown[]): void {
           store.log("info", args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" "));
+        },
+        hud(text: string): void {
+          store.playHud = String(text ?? "");
+        },
+        camera: {
+          follow(target: ScriptApi | null): void {
+            self.cameraBridge?.patchPlayCam({ active: true, targetId: target ? target.id : null });
+          },
+          lookAt(pos: Vec3Like): void {
+            self.cameraBridge?.patchPlayCam({
+              active: true,
+              targetId: null,
+              targetPos: { x: pos.x ?? 0, y: pos.y ?? 0, z: pos.z ?? 0 },
+            });
+          },
+          stop(): void {
+            self.cameraBridge?.patchPlayCam({ active: false });
+          },
+          get yaw() {
+            return self.cameraBridge?.getPlayCam().yaw ?? 0;
+          },
+          set yaw(v: number) {
+            self.cameraBridge?.patchPlayCam({ yaw: Number(v) || 0 });
+          },
+          get pitch() {
+            return self.cameraBridge?.getPlayCam().pitch ?? 20;
+          },
+          set pitch(v: number) {
+            self.cameraBridge?.patchPlayCam({ pitch: Math.max(-80, Math.min(85, Number(v) || 0)) });
+          },
+          get distance() {
+            return self.cameraBridge?.getPlayCam().distance ?? 8;
+          },
+          set distance(v: number) {
+            self.cameraBridge?.patchPlayCam({ distance: Math.max(1, Number(v) || 8) });
+          },
         },
       };
       return api;

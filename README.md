@@ -17,10 +17,13 @@ come alive, then save the whole thing as a portable JSON file.
 - **Hierarchy panel** — parent/child tree with drag-drop reparenting (world
   position preserved), expand/collapse, search, rename, visibility, delete
 - **Physics (v0.2)** — static & dynamic bodies: gravity, bounce restitution,
-  initial velocity, ground & object collisions — simulated during Play
+  initial velocity, ground half-spaces, sphere-vs-box (AABB) and sphere-vs-sphere
+  collisions — simulated during Play
 - **Scripting (v0.2)** — per-object JavaScript with `onStart()` / `onUpdate(dt, t)`
-  hooks and an `api` (position/rotation/scale, `find(name)`, `key(code)`, `log`)
-  — enough for player controllers; runs during Play
+  hooks and an `api`: `position/rotation/scale`, `velocity` (write to jump),
+  `grounded`, `find(name)`, `key(code)`, `log()`, `hud(text)` and a
+  **third-person camera** (`api.camera.follow(api)`, drag the viewport to orbit)
+  — runs during Play, in the editor and in exported games
 - **Export playable HTML (v0.2)** — one click writes a single self-contained
   `.html` (Babylon.js via CDN + inlined scene) that anyone can open and play
 - **Stability (v0.2)** — autosave with crash recovery on next launch, and a
@@ -36,6 +39,16 @@ come alive, then save the whole thing as a portable JSON file.
   (Ctrl+S / Ctrl+O)
 - **Bilingual UI** — English (default) & Bahasa Indonesia, persisted
 - **Console panel** — timestamped editor log with severity filters
+
+## Third-person demo ("Lova Obby")
+
+Click the **Demo** button in the toolbar for a ready-made Roblox-style mini game:
+a blocky character (parented limbs that swing while walking), WASD/arrow
+movement relative to the camera, Space to jump, a draggable third-person camera,
+collectible coins with an HUD counter, AABB platforms, a moving platform and a
+spinning hazard. Then press **Export HTML** to get the same game as a single
+playable file. The demo is ordinary scene data — every mechanic is a script you
+can read and edit in the Inspector.
 
 ## Getting started
 

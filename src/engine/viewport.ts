@@ -78,6 +78,26 @@ export class ViewportBridge {
   private fpsAccumMs = 0;
   private downX = 0;
   private downY = 0;
+  private lastMoveX = 0;
+  private lastMoveY = 0;
+  private leftDown = false;
+
+  /** Script-driven play camera (third-person). */
+  playCam: {
+    active: boolean;
+    targetId: string | null;
+    targetPos: { x: number; y: number; z: number };
+    yaw: number;
+    pitch: number;
+    distance: number;
+  } = {
+    active: false,
+    targetId: null,
+    targetPos: { x: 0, y: 1, z: 0 },
+    yaw: 0,
+    pitch: 20,
+    distance: 8,
+  };
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -130,6 +150,7 @@ export class ViewportBridge {
 
     // ── input ──────────────────────────────────────────────────────────
     canvas.addEventListener("pointerdown", this.onPointerDown);
+    canvas.addEventListener("pointermove", this.onPointerMove);
     canvas.addEventListener("pointerup", this.onPointerUp);
     canvas.addEventListener("contextmenu", this.onContextMenu);
 
@@ -137,6 +158,7 @@ export class ViewportBridge {
       const dt = this.engine.getDeltaTime() / 1000;
       runtime.tick(dt);
       this.pullGizmoTransform();
+      this.applyPlayCamera();
       this.scene.render();
       this.reportFps(dt);
     });
@@ -194,8 +216,38 @@ export class ViewportBridge {
       this.clearHighlight();
       for (const entry of this.nodes.values()) entry.icon?.setEnabled(false);
     } else {
+      // Leaving play mode: release the script camera so the user gets their
+      // orbit camera back.
+      this.playCam = { ...this.playCam, active: false };
       for (const entry of this.nodes.values()) this.updateIconVisibility(entry);
     }
+  }
+
+  // ──────────────────────── script play camera ─────────────────────────
+
+  getPlayCam(): { active: boolean; targetId: string | null; targetPos: { x: number; y: number; z: number }; yaw: number; pitch: number; distance: number } {
+    return { ...this.playCam, targetPos: { ...this.playCam.targetPos } };
+  }
+
+  patchPlayCam(patch: Partial<this["playCam"]>): void {
+    this.playCam = { ...this.playCam, ...patch };
+  }
+
+  /**
+   * Play camera: yaw° (0 = looking toward +Z), pitch° up, distance behind.
+   * Drag on the canvas while active orbits the camera (Roblox-style).
+   */
+  private applyPlayCamera(): void {
+    const pc = this.playCam;
+    if (!pc.active || this.playState === "edit") return;
+    const target = pc.targetId ? this.nodes.get(pc.targetId)?.root.getAbsolutePosition() : null;
+    const t = target ?? new Vector3(pc.targetPos.x, pc.targetPos.y, pc.targetPos.z);
+    this.camera.setTarget(t);
+    this.camera.radius = Math.max(1, pc.distance);
+    // ArcRotate alpha places the camera along (cos α, sin α); we want it
+    // BEHIND the forward vector (sin yaw, cos yaw) → α = 270° − yaw.
+    this.camera.alpha = (270 - pc.yaw) * DEG;
+    this.camera.beta = Math.max(0.05, Math.min(1.52, (90 - pc.pitch) * DEG));
   }
 
   /** Frame the given object ids (F key). */
@@ -222,6 +274,7 @@ export class ViewportBridge {
 
   dispose(): void {
     this.canvas.removeEventListener("pointerdown", this.onPointerDown);
+    this.canvas.removeEventListener("pointermove", this.onPointerMove);
     this.canvas.removeEventListener("pointerup", this.onPointerUp);
     this.canvas.removeEventListener("contextmenu", this.onContextMenu);
     this.engine.stopRenderLoop();
@@ -497,9 +550,24 @@ export class ViewportBridge {
   private onPointerDown = (e: PointerEvent): void => {
     this.downX = e.clientX;
     this.downY = e.clientY;
+    this.lastMoveX = e.clientX;
+    this.lastMoveY = e.clientY;
+    this.leftDown = e.button === 0;
+  };
+
+  private onPointerMove = (e: PointerEvent): void => {
+    // Orbit the script play camera by dragging (only while it is active).
+    if (!this.leftDown || !this.playCam.active || this.playState === "edit") return;
+    const dx = e.clientX - this.lastMoveX;
+    const dy = e.clientY - this.lastMoveY;
+    this.lastMoveX = e.clientX;
+    this.lastMoveY = e.clientY;
+    this.playCam.yaw += dx * 0.3;
+    this.playCam.pitch = Math.max(-80, Math.min(85, this.playCam.pitch + dy * 0.3));
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    this.leftDown = false;
     // Commit a finished gizmo drag (one history entry per drag).
     if (this.pendingGizmoChange) {
       this.pendingGizmoChange = false;

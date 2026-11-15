@@ -806,6 +806,26 @@ select {
   border-color: rgba(255, 199, 92, 0.4);
 }
 
+.play-hud {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 70%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: rgba(15, 17, 21, 0.82);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 14px;
+  pointer-events: none;
+  z-index: 5;
+}
+
 /* ────────────────────────────── console ───────────────────────────────── */
 
 .filter-btn {

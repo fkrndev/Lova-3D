@@ -3,6 +3,7 @@
   import { store } from "../engine/sceneStore.svelte";
   import { runtime } from "../engine/runtime";
   import { buildExportHtml } from "../export/playerRuntime";
+  import { createThirdPersonDemo } from "../engine/demoScene";
   import { ViewportBridge } from "../engine/viewport";
   import { t } from "../i18n/index.svelte";
   import Icon from "./ui/Icon.svelte";
@@ -32,8 +33,10 @@
       onGizmoCommit: () => store.commit(),
       onFps: (fps) => store.setFps(fps),
     });
+    // Give the runtime's api.camera control over this bridge's play camera.
+    runtime.attachCamera(bridge);
     // Debug handle for QA from devtools (stripped from any production logic paths).
-    (window as unknown as Record<string, unknown>).__lova = { store, bridge, runtime, buildExportHtml };
+    (window as unknown as Record<string, unknown>).__lova = { store, bridge, runtime, buildExportHtml, createThirdPersonDemo };
     const ro = new ResizeObserver(() => bridge?.resize());
     ro.observe(container);
     return () => {
@@ -72,6 +75,9 @@
       {#if store.playState === "playing"}<Icon name="play" size={12} />{:else}<Icon name="pause" size={12} />{/if}
       {t(playLabel[store.playState])}
     </div>
+    {#if store.playHud}
+      <div class="play-hud">{store.playHud}</div>
+    {/if}
   {/if}
 
   <div class="viewport-overlay">

@@ -95,6 +95,7 @@ const id: Dict = {
   "script.hint": "Berjalan saat Play — api: position, rotation (°), scale, find(name), key(code), log(...)",
 
   "toolbar.export": "Ekspor HTML",
+  "toolbar.demo": "Demo",
 
   "console.empty": "Konsol kosong",
   "console.clear": "Bersihkan",

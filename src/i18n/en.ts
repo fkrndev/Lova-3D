@@ -93,6 +93,7 @@ const en = {
   "script.hint": "Runs on Play — api: position, rotation (°), scale, find(name), key(code), log(...)",
 
   "toolbar.export": "Export HTML",
+  "toolbar.demo": "Demo",
 
   "console.empty": "Console is empty",
   "console.clear": "Clear",
