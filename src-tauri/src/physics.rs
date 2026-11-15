@@ -145,6 +145,8 @@ impl PhysicsWorld {
         states
     }
 
+    /// Test-only accessor (used by the determinism test).
+    #[cfg(test)]
     fn last_states(&self) -> Vec<BodyState> {
         self.last_states.clone()
     }
